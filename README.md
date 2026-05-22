@@ -1,0 +1,1 @@
+This clinical trial research explores the different pathways in win ratio for analyzing the hierarchical composite endpoints. The pathways include endpoint weighting, endpoint ordering, and threshold-based definitions of clinically meaningful time differences.  
