@@ -220,10 +220,7 @@ load_package_data_object <- function(package.name, object.name, dataset.id = "re
   )
 }
 
-
-# ---------------------------------------------------------------------
-# Custom reshaper for survival::colon
-# ---------------------------------------------------------------------
+# reshaper for survival::colon
 # survival::colon is a real colon cancer adjuvant chemotherapy trial dataset.
 # It has two records per subject: etype = 1 for recurrence and etype = 2 for
 # death. This function keeps the rest of the pipeline unchanged by converting
