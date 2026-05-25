@@ -60,28 +60,28 @@ EPS_WR <- 1e-8
 #Data simulation
 simulate.one.dataset <-
   function(N = 50,                           # number of patients per arm;
-                                             # can be a vector, e.g., N=c(50,100), which
-                                             # means 50 patients in control arm
-                                             # and 100 patients in treatment arm
+           # can be a vector, e.g., N=c(50,100), which
+           # means 50 patients in control arm
+           # and 100 patients in treatment arm
            mort.rate.ctrl = -log(0.6),       # mortality rate in control arm
-                                             # (1-yr survival rate=60% in control arm)
+           # (1-yr survival rate=60% in control arm)
            mort.rate.trt = -log(0.6) * 0.6,  # mortality rate in treatment arm
-                                             # (HR=0.6)
+           # (HR=0.6)
            evt.rate.shape.param = 5,
            evt.rate.scale.param.ctr = 1,     # avg. freq. of hospitalization in
-                                             # control arm = evt.rate.shape.param
-                                             # * evt.rate.scale.param.ctr
-                                             # (5 event/yr)
+           # control arm = evt.rate.shape.param
+           # * evt.rate.scale.param.ctr
+           # (5 event/yr)
            evt.rate.scale.param.trt = 1/2,   # avg. freq. of hospitalization in
-                                             # treatment arm =
-                                             # evt.rate.shape.param *
-                                             # evt.rate.scale.param.trt
-                                             # (2.5 event/yr)
+           # treatment arm =
+           # evt.rate.shape.param *
+           # evt.rate.scale.param.trt
+           # (2.5 event/yr)
            max.followup = 1)                 # maximum follow-up = 1 years
   {
     if (length(N) == 1) N <- rep(N, 2)
     rr <- N[2] / N[1]  # randomization ratio; kept for consistency with old code
-
+    
     # Subject.ID, Arm, Followup.Time, Censor.Ind, Survival.Time,
     # Censor.Time, Freq.of.Hosp, No.of.Hosp
     table.output <- cbind(
@@ -98,13 +98,13 @@ simulate.one.dataset <-
                scale = evt.rate.scale.param.trt)),
       rep(0, sum(N))
     )
-
+    
     table.output <- data.frame(table.output)
     colnames(table.output) <- c(
       "SUBJID", "ARM", "FUTIME", "CNSR", "SURVTIME",
       "CNSRTIME", "FREQHOSP", "NUMHOSP"
     )
-
+    
     for (i in seq_len(sum(N))) {
       table.output$CNSR[i] <-
         ifelse(table.output$SURVTIME[i] < table.output$FUTIME[i] &&
@@ -114,14 +114,14 @@ simulate.one.dataset <-
             table.output$SURVTIME[i],
             table.output$CNSRTIME[i])
     }
-
+    
     hosp.times.list <- list()
     for (i in seq_len(sum(N))) {
       hosp.times.list[[i]] <- NA
       cum.time <- 0
       followup.time <- table.output$FUTIME[i]
       hosp.rate <- table.output$FREQHOSP[i]
-
+      
       while (TRUE) {
         new.hosp.time <- rexp(1, rate = hosp.rate)
         cum.time <- cum.time + new.hosp.time
@@ -132,7 +132,7 @@ simulate.one.dataset <-
         }
       }
     }
-
+    
     for (i in seq_len(sum(N))) {
       if (length(hosp.times.list[[i]]) > 1) {
         hosp.times.list[[i]] <- hosp.times.list[[i]][-1]
@@ -142,7 +142,7 @@ simulate.one.dataset <-
         table.output$NUMHOSP[i] <- 0
       }
     }
-
+    
     list(table.output = table.output, hosp.times.list = hosp.times.list)
   }
 
@@ -151,17 +151,17 @@ simulate.one.dataset <-
 apply.random.censoring <- function(ds, censor.rate = 0, seed = NULL) {
   if (is.null(censor.rate) || is.na(censor.rate) || censor.rate <= 0) return(ds)
   if (!is.null(seed)) set.seed(seed)
-
+  
   tab <- ds$table.output
   n <- nrow(tab)
   ctime <- rexp(n, rate = censor.rate)
-
+  
   for (i in seq_len(n)) {
     if (ctime[i] < tab$FUTIME[i]) {
       tab$FUTIME[i] <- ctime[i]
       tab$CNSRTIME[i] <- ctime[i]
       tab$CNSR[i] <- 0
-
+      
       x <- ds$hosp.times.list[[i]]
       if (length(x) == 0 || all(is.na(x))) {
         ds$hosp.times.list[[i]] <- numeric(0)
@@ -180,7 +180,7 @@ apply.random.censoring <- function(ds, censor.rate = 0, seed = NULL) {
       }
     }
   }
-
+  
   ds$table.output <- tab
   ds
 }
@@ -191,7 +191,7 @@ prepare.ds.fast <- function(ds) {
   # This avoids repeated cumsum() inside pairwise loops.
   n <- nrow(ds$table.output)
   hosp.abs.times.list <- vector("list", n)
-
+  
   for (i in seq_len(n)) {
     x <- ds$hosp.times.list[[i]]
     if (length(x) == 0 || all(is.na(x))) {
@@ -201,12 +201,12 @@ prepare.ds.fast <- function(ds) {
       hosp.abs.times.list[[i]] <- cumsum(x)
     }
   }
-
+  
   lens <- as.integer(lengths(hosp.abs.times.list))
   starts <- if (n == 0) integer(0) else as.integer(cumsum(c(0L, lens[-n])))
   flat <- as.numeric(unlist(hosp.abs.times.list, use.names = FALSE))
   if (length(flat) == 0) flat <- numeric(0)
-
+  
   ds$hosp.abs.times.list <- hosp.abs.times.list
   ds$hosp.flat <- flat
   ds$hosp.start <- starts  # zero-based starts for C++
@@ -516,7 +516,7 @@ fast.wr.engine.revised <- function(ds,
                                    eps = EPS_WR) {
   if (is.null(ds$hosp.flat)) ds <- prepare.ds.fast(ds)
   tab <- ds$table.output
-
+  
   core <- fast_wr_core_revised_cpp(
     futime = as.numeric(tab$FUTIME),
     cnsr = as.integer(tab$CNSR),
@@ -528,7 +528,7 @@ fast.wr.engine.revised <- function(ds,
     t_grid = as.numeric(t.grid),
     eps = eps
   )
-
+  
   total.pairs <- as.numeric(core$total_pairs)
   D1.win <- as.numeric(core$D1_win)
   D1.loss <- as.numeric(core$D1_loss)
@@ -539,7 +539,7 @@ fast.wr.engine.revised <- function(ds,
   D2.win <- as.numeric(core$D2_win)
   D2.loss <- as.numeric(core$D2_loss)
   true.tie.pairs <- as.numeric(core$true_tie_pairs)
-
+  
   weighted.death.first <- data.frame(
     order = "death_first",
     p = as.numeric(core$p_grid),
@@ -548,7 +548,7 @@ fast.wr.engine.revised <- function(ds,
     loss.score = as.numeric(core$loss_death_first),
     stringsAsFactors = FALSE
   )
-
+  
   weighted.death.first$win.pairs <- ifelse(
     weighted.death.first$p >= 1,
     D1.win,
@@ -562,7 +562,7 @@ fast.wr.engine.revised <- function(ds,
   weighted.death.first$tie.count <- total.pairs -
     weighted.death.first$win.pairs - weighted.death.first$loss.pairs
   weighted.death.first$tie.pr <- weighted.death.first$tie.count / total.pairs
-
+  
   weighted.hosp.first <- data.frame(
     order = "hospitalization_first",
     p = as.numeric(core$p_grid),
@@ -571,7 +571,7 @@ fast.wr.engine.revised <- function(ds,
     loss.score = as.numeric(core$loss_hosp_first),
     stringsAsFactors = FALSE
   )
-
+  
   weighted.hosp.first$win.pairs <- ifelse(
     weighted.hosp.first$p >= 1,
     H1.win,
@@ -585,9 +585,9 @@ fast.wr.engine.revised <- function(ds,
   weighted.hosp.first$tie.count <- total.pairs -
     weighted.hosp.first$win.pairs - weighted.hosp.first$loss.pairs
   weighted.hosp.first$tie.pr <- weighted.hosp.first$tie.count / total.pairs
-
+  
   weighted.all.orders <- rbind(weighted.death.first, weighted.hosp.first)
-
+  
   threshold <- data.frame(
     t = as.numeric(core$t_grid),
     t.months = as.numeric(core$t_grid) * 12,
@@ -601,33 +601,33 @@ fast.wr.engine.revised <- function(ds,
   )
   threshold$tie.count <- total.pairs - threshold$wins - threshold$losses
   best.t.idx <- which.max(threshold$WR)
-
+  
   p.low.values <- p.grid[p.grid < 0.5]
   p.primary.values <- p.grid[p.grid >= 0.5]
   p.low.lower <- if (length(p.low.values) > 0) min(p.low.values) else NA_real_
   p.low.upper <- if (length(p.low.values) > 0) max(p.low.values) else NA_real_
   p.primary.lower <- if (length(p.primary.values) > 0) min(p.primary.values) else NA_real_
   p.primary.upper <- if (length(p.primary.values) > 0) max(p.primary.values) else NA_real_
-
+  
   list(
     ordinaryWR = as.numeric(core$ordinaryWR),
     ordinary.win.score = as.numeric(core$ordinary_win_score),
     ordinary.loss.score = as.numeric(core$ordinary_loss_score),
-
+    
     weighted.death.first = weighted.death.first,
     weighted.hosp.first = weighted.hosp.first,
     weighted.all.orders = weighted.all.orders,
-
+    
     max.weighted.primary = max_from_curve(weighted.death.first, "maxWRp_primary_death_first", p.primary.lower, p.primary.upper),
     max.weighted.low = max_from_curve(weighted.death.first, "maxWRp_low_death_first", p.low.lower, p.low.upper),
     max.weighted.full = max_from_curve(weighted.death.first, "maxWRp_full_death_first", min(p.grid), max(p.grid)),
-
+    
     max.order.primary = max_from_curve(weighted.all.orders, "maxOrderWR_primary", p.primary.lower, p.primary.upper),
     max.order.full = max_from_curve(weighted.all.orders, "maxOrderWR_full", min(p.grid), max(p.grid)),
-
+    
     threshold = threshold,
     max.threshold = threshold[best.t.idx, , drop = FALSE],
-
+    
     counts = list(
       total.pairs = as.numeric(core$total_pairs),
       D1.win = as.numeric(core$D1_win),
@@ -678,15 +678,15 @@ compute.composite.endpoint.data <- function(ds) {
   if (is.null(ds$hosp.abs.times.list)) ds <- prepare.ds.fast(ds)
   tab <- ds$table.output
   first.hosp <- first_hosp_time_vec(ds)
-
+  
   death.time <- ifelse(tab$CNSR == 1, tab$FUTIME, Inf)
   comp.time <- pmin(death.time, first.hosp)
   comp.event <- is.finite(comp.time) & comp.time <= tab$FUTIME
-
+  
   comp.type <- rep("censored", nrow(tab))
   comp.type[comp.event & death.time <= first.hosp] <- "death"
   comp.type[comp.event & first.hosp < death.time] <- "hospitalization"
-
+  
   data.frame(
     SUBJID = tab$SUBJID,
     ARM = tab$ARM,
@@ -703,7 +703,7 @@ composite.statistics <- function(ds) {
   if (is.null(ds$hosp.abs.times.list)) ds <- prepare.ds.fast(ds)
   tab <- ds$table.output
   comp <- compute.composite.endpoint.data(ds)
-
+  
   dat <- data.frame(
     ARM = tab$ARM,
     FUTIME = tab$FUTIME,
@@ -715,7 +715,7 @@ composite.statistics <- function(ds) {
     comp.type = comp$event.type,
     stringsAsFactors = FALSE
   )
-
+  
   out <- do.call(rbind, lapply(split(dat, dat$ARM), function(d) {
     data.frame(
       ARM = unique(d$ARM),
@@ -743,20 +743,20 @@ composite.statistics <- function(ds) {
 
 run.logrank.tests <- function(ds) {
   tab <- ds$table.output
-
+  
   lr.death <- survival::survdiff(
     survival::Surv(FUTIME, CNSR) ~ ARM,
     data = tab
   )
   p.death <- pchisq(lr.death$chisq, df = length(lr.death$n) - 1, lower.tail = FALSE)
-
+  
   comp <- compute.composite.endpoint.data(ds)
   lr.comp <- survival::survdiff(
     survival::Surv(time, event) ~ ARM,
     data = comp
   )
   p.comp <- pchisq(lr.comp$chisq, df = length(lr.comp$n) - 1, lower.tail = FALSE)
-
+  
   data.frame(
     method = c("Log-rank death endpoint", "Log-rank composite endpoint"),
     statistic = c(lr.death$chisq, lr.comp$chisq),
@@ -776,10 +776,10 @@ choose.threshold.grid.primary <- function(ds,
   # No hospitalization time, recurrent-event count, or composite endpoint time is used.
   tab <- ds$table.output
   max.months <- max(tab$FUTIME, na.rm = TRUE) * 12
-
+  
   primary.months <- tab$FUTIME * 12
   death.months <- tab$FUTIME[tab$CNSR == 1] * 12
-
+  
   pair.abs.diff <- numeric(0)
   if (length(primary.months) >= 2) {
     if (length(primary.months) <= 300) {
@@ -791,7 +791,7 @@ choose.threshold.grid.primary <- function(ds,
       pair.abs.diff <- abs(primary.months[id1] - primary.months[id2])
     }
   }
-
+  
   diagnostics <- data.frame(
     quantity = c(
       "first endpoint follow-up mean",
@@ -816,9 +816,9 @@ choose.threshold.grid.primary <- function(ds,
     source = "first endpoint only",
     stringsAsFactors = FALSE
   )
-
+  
   clinical <- clinical.months[clinical.months > 0 & clinical.months <= max.months]
-
+  
   priority <- c(
     diagnostics$months[diagnostics$quantity == "absolute pairwise first-endpoint difference mean"],
     diagnostics$months[diagnostics$quantity == "absolute pairwise first-endpoint difference median"],
@@ -828,36 +828,36 @@ choose.threshold.grid.primary <- function(ds,
     0.50 * diagnostics$months[diagnostics$quantity == "first endpoint follow-up mean"],
     diagnostics$months[diagnostics$quantity == "observed death time median among deaths"]
   )
-
+  
   priority <- round(priority, digits = 1)
   priority <- priority[is.finite(priority) & !is.na(priority)]
   priority <- priority[priority > 0 & priority <= max.months]
-
+  
   selected <- unique(sort(round(clinical, digits = 1)))
   for (x in priority) {
     if (length(selected) >= max.K) break
     selected <- unique(sort(c(selected, x)))
   }
-
+  
   if (length(selected) == 0) {
     selected <- round(seq(max.months / 4, max.months, length.out = min(4, max.K)), 1)
     selected <- selected[selected > 0]
   }
-
+  
   if (length(selected) > max.K) {
     keep.idx <- unique(round(seq(1, length(selected), length.out = max.K)))
     selected <- selected[keep.idx]
   }
-
+  
   selected <- unique(sort(selected))
-
+  
   threshold.table <- data.frame(
     t.months = selected,
     t.years = selected / 12,
     source = ifelse(selected %in% round(clinical, 1), "clinical candidate", "first-endpoint data-informed"),
     stringsAsFactors = FALSE
   )
-
+  
   list(
     t.grid = selected / 12,
     threshold.table = threshold.table,
@@ -874,9 +874,9 @@ perm.test.revised <- function(ds,
                               verbose = FALSE) {
   ds <- prepare.ds.fast(ds)
   set.seed(seed)
-
+  
   obs <- fast.wr.engine.revised(ds, p.grid = p.grid, t.grid = t.grid)
-
+  
   max.names <- c(
     "ordinaryWR",
     "maxWRp_primary",
@@ -886,7 +886,7 @@ perm.test.revised <- function(ds,
     "maxOrderWR_full",
     "maxWRt"
   )
-
+  
   fixed.names <- c(
     "ordinaryWR",
     "fixedWRp_primary",
@@ -896,7 +896,7 @@ perm.test.revised <- function(ds,
     "fixedOrder_full",
     "fixedWRt"
   )
-
+  
   T.obs.max <- c(
     ordinaryWR = obs$ordinaryWR,
     maxWRp_primary = obs$max.weighted.primary$WR[1],
@@ -906,7 +906,7 @@ perm.test.revised <- function(ds,
     maxOrderWR_full = obs$max.order.full$WR[1],
     maxWRt = obs$max.threshold$WR[1]
   )
-
+  
   fixed.p.primary <- obs$max.weighted.primary$p[1]
   fixed.p.low <- obs$max.weighted.low$p[1]
   fixed.p.full <- obs$max.weighted.full$p[1]
@@ -915,7 +915,7 @@ perm.test.revised <- function(ds,
   fixed.order.full <- obs$max.order.full$order[1]
   fixed.order.p.full <- obs$max.order.full$p[1]
   fixed.t <- obs$max.threshold$t[1]
-
+  
   T.obs.fixed <- c(
     ordinaryWR = obs$ordinaryWR,
     fixedWRp_primary = wr_at_order_p(obs, "death_first", fixed.p.primary),
@@ -925,12 +925,12 @@ perm.test.revised <- function(ds,
     fixedOrder_full = wr_at_order_p(obs, fixed.order.full, fixed.order.p.full),
     fixedWRt = threshold_at_t(obs, fixed.t)
   )
-
+  
   perm.max <- matrix(NA_real_, nrow = B, ncol = length(max.names))
   colnames(perm.max) <- max.names
   perm.fixed <- matrix(NA_real_, nrow = B, ncol = length(fixed.names))
   colnames(perm.fixed) <- fixed.names
-
+  
   # Store pointwise permutation curves so the script can report
   # average p-values and average tie counts at each candidate p and t.
   perm.pointwise.death.first <- matrix(NA_real_, nrow = B, ncol = length(p.grid))
@@ -939,7 +939,7 @@ perm.test.revised <- function(ds,
   colnames(perm.pointwise.death.first) <- paste0("p_", sprintf("%.2f", p.grid))
   colnames(perm.pointwise.hosp.first) <- paste0("p_", sprintf("%.2f", p.grid))
   colnames(perm.pointwise.threshold) <- paste0("t_months_", sprintf("%.1f", t.grid * 12))
-
+  
   selected.perm <- data.frame(
     b = seq_len(B),
     selected.p.primary = NA_real_,
@@ -952,24 +952,24 @@ perm.test.revised <- function(ds,
     selected.t = NA_real_,
     stringsAsFactors = FALSE
   )
-
+  
   perm.seeds <- seed + seq_len(B) * 1009L
-
+  
   for (b in seq_len(B)) {
     if (verbose && (b == 1 || b == B || b %% 50 == 0)) {
       cat("  Permutation", b, "of", B, "\n")
     }
-
+    
     set.seed(perm.seeds[b])
     ds.b <- ds
     ds.b$table.output$ARM <- sample(ds$table.output$ARM, replace = FALSE)
-
+    
     out.b <- fast.wr.engine.revised(ds.b, p.grid = p.grid, t.grid = t.grid)
-
+    
     perm.pointwise.death.first[b, ] <- out.b$weighted.death.first$WR
     perm.pointwise.hosp.first[b, ] <- out.b$weighted.hosp.first$WR
     perm.pointwise.threshold[b, ] <- out.b$threshold$WR
-
+    
     perm.max[b, "ordinaryWR"] <- out.b$ordinaryWR
     perm.max[b, "maxWRp_primary"] <- out.b$max.weighted.primary$WR[1]
     perm.max[b, "maxWRp_low"] <- out.b$max.weighted.low$WR[1]
@@ -977,7 +977,7 @@ perm.test.revised <- function(ds,
     perm.max[b, "maxOrderWR_primary"] <- out.b$max.order.primary$WR[1]
     perm.max[b, "maxOrderWR_full"] <- out.b$max.order.full$WR[1]
     perm.max[b, "maxWRt"] <- out.b$max.threshold$WR[1]
-
+    
     perm.fixed[b, "ordinaryWR"] <- out.b$ordinaryWR
     perm.fixed[b, "fixedWRp_primary"] <- wr_at_order_p(out.b, "death_first", fixed.p.primary)
     perm.fixed[b, "fixedWRp_low"] <- wr_at_order_p(out.b, "death_first", fixed.p.low)
@@ -985,7 +985,7 @@ perm.test.revised <- function(ds,
     perm.fixed[b, "fixedOrder_primary"] <- wr_at_order_p(out.b, fixed.order.primary, fixed.order.p.primary)
     perm.fixed[b, "fixedOrder_full"] <- wr_at_order_p(out.b, fixed.order.full, fixed.order.p.full)
     perm.fixed[b, "fixedWRt"] <- threshold_at_t(out.b, fixed.t)
-
+    
     selected.perm$selected.p.primary[b] <- out.b$max.weighted.primary$p[1]
     selected.perm$selected.p.low[b] <- out.b$max.weighted.low$p[1]
     selected.perm$selected.p.full[b] <- out.b$max.weighted.full$p[1]
@@ -995,14 +995,14 @@ perm.test.revised <- function(ds,
     selected.perm$selected.order.p.full[b] <- out.b$max.order.full$p[1]
     selected.perm$selected.t[b] <- out.b$max.threshold$t[1]
   }
-
+  
   calc_perm_p <- function(perm.vec, obs.value) {
     (1 + sum(perm.vec >= obs.value, na.rm = TRUE)) / (sum(!is.na(perm.vec)) + 1)
   }
-
+  
   p.value.max <- sapply(names(T.obs.max), function(nm) calc_perm_p(perm.max[, nm], T.obs.max[nm]))
   p.value.fixed <- sapply(names(T.obs.fixed), function(nm) calc_perm_p(perm.fixed[, nm], T.obs.fixed[nm]))
-
+  
   p.value.pointwise.death.first <- sapply(seq_along(p.grid), function(k) {
     calc_perm_p(perm.pointwise.death.first[, k], obs$weighted.death.first$WR[k])
   })
@@ -1012,7 +1012,7 @@ perm.test.revised <- function(ds,
   p.value.pointwise.threshold <- sapply(seq_along(t.grid), function(k) {
     calc_perm_p(perm.pointwise.threshold[, k], obs$threshold$WR[k])
   })
-
+  
   list(
     observed = obs,
     T.obs.max = T.obs.max,
@@ -1067,7 +1067,7 @@ make.pvalue.table <- function(test.out, logrank.results = NULL) {
     B = test.out$B,
     stringsAsFactors = FALSE
   )
-
+  
   fixed.tab <- data.frame(
     method = names(test.out$T.obs.fixed),
     statistic.type = "fixed selected-parameter permutation p-value",
@@ -1076,9 +1076,9 @@ make.pvalue.table <- function(test.out, logrank.results = NULL) {
     B = test.out$B,
     stringsAsFactors = FALSE
   )
-
+  
   out <- rbind(max.tab, fixed.tab)
-
+  
   if (!is.null(logrank.results)) {
     lr.tab <- data.frame(
       method = logrank.results$method,
@@ -1090,7 +1090,7 @@ make.pvalue.table <- function(test.out, logrank.results = NULL) {
     )
     out <- rbind(out, lr.tab)
   }
-
+  
   out
 }
 
@@ -1172,7 +1172,7 @@ get_selected_threshold_row <- function(engine.out, t) {
 
 make.selected.max.table <- function(test.out) {
   obs <- test.out$observed
-
+  
   w.traditional <- get_selected_weighted_row(obs, "death_first", 0.5)
   w.primary <- get_selected_weighted_row(obs, "death_first", test.out$selected.fixed$p.primary)
   w.low <- get_selected_weighted_row(obs, "death_first", test.out$selected.fixed$p.low)
@@ -1180,10 +1180,10 @@ make.selected.max.table <- function(test.out) {
   o.primary <- get_selected_weighted_row(obs, test.out$selected.fixed$order.primary, test.out$selected.fixed$order.p.primary)
   o.full <- get_selected_weighted_row(obs, test.out$selected.fixed$order.full, test.out$selected.fixed$order.p.full)
   t.row <- get_selected_threshold_row(obs, test.out$selected.fixed$t)
-
+  
   get_tie_count <- function(x) if (is.null(x)) NA_real_ else as.numeric(x$tie.count[1])
   get_tie_pr <- function(x) if (is.null(x)) NA_real_ else as.numeric(x$tie.pr[1])
-
+  
   data.frame(
     method = c(
       "Traditional WR",
@@ -1267,7 +1267,7 @@ make.selected.max.table <- function(test.out) {
 
 make.pointwise.table <- function(test.out) {
   obs <- test.out$observed
-
+  
   death <- obs$weighted.death.first
   death$family <- "weighted_p"
   death$parameter.name <- "p"
@@ -1276,7 +1276,7 @@ make.pointwise.table <- function(test.out) {
   death$parameter.label <- paste0("p = ", sprintf("%.2f", death$p))
   death$observed.WR <- death$WR
   death$pointwise.p.value <- as.numeric(test.out$p.value.pointwise$death_first)
-
+  
   hosp <- obs$weighted.hosp.first
   hosp$family <- "weighted_p"
   hosp$parameter.name <- "p"
@@ -1285,7 +1285,7 @@ make.pointwise.table <- function(test.out) {
   hosp$parameter.label <- paste0("p = ", sprintf("%.2f", hosp$p))
   hosp$observed.WR <- hosp$WR
   hosp$pointwise.p.value <- as.numeric(test.out$p.value.pointwise$hospitalization_first)
-
+  
   thr <- obs$threshold
   thr.out <- data.frame(
     order = NA_character_,
@@ -1306,13 +1306,13 @@ make.pointwise.table <- function(test.out) {
     pointwise.p.value = as.numeric(test.out$p.value.pointwise$threshold),
     stringsAsFactors = FALSE
   )
-
+  
   keep.cols <- c(
     "family", "order", "parameter.name", "parameter", "parameter.months",
     "parameter.label", "observed.WR", "pointwise.p.value", "win.score",
     "loss.score", "win.pairs", "loss.pairs", "tie.count", "tie.pr"
   )
-
+  
   out <- rbind(
     death[, keep.cols, drop = FALSE],
     hosp[, keep.cols, drop = FALSE],
@@ -1422,7 +1422,7 @@ plot.km.with.threshold <- function(ds, engine.out, outdir, prefix) {
   tab <- ds$table.output
   comp <- compute.composite.endpoint.data(ds)
   selected.t <- engine.out$max.threshold$t[1]
-
+  
   save_png(outdir, paste0(prefix, "_KM_death_with_selected_t.png"))
   old.par <- par(no.readonly = TRUE)
   par(mar = c(5.2, 5.2, 3.4, 1.2))
@@ -1437,7 +1437,7 @@ plot.km.with.threshold <- function(ds, engine.out, outdir, prefix) {
          lty = c(1, 1, 2), lwd = c(2, 2, 2), bty = "n", cex = 0.85)
   par(old.par)
   dev.off()
-
+  
   save_png(outdir, paste0(prefix, "_KM_composite_with_selected_t.png"))
   old.par <- par(no.readonly = TRUE)
   par(mar = c(5.2, 5.2, 3.4, 1.2))
@@ -1458,7 +1458,7 @@ plot.km.with.threshold <- function(ds, engine.out, outdir, prefix) {
 #Scenario configuration
 build.scenario.grid <- function() {
   base.mort <- -log(0.6)
-
+  
   #Scenario interpretation:
   #equivalence/null: treatment and control have the same generating parameters.
   #similarity: treatment is only slightly better or slightly worse.
@@ -1481,7 +1481,7 @@ build.scenario.grid <- function() {
     "S12_high_random_censoring_superiority",
     "S13_low_censoring_long_followup_superiority"
   )
-
+  
   # Short labels used in tables and plots. They intentionally avoid underscores.
   scenario_label <- c(
     "S01 Equal",
@@ -1498,7 +1498,7 @@ build.scenario.grid <- function() {
     "S12 High censor",
     "S13 Long FU"
   )
-
+  
   scenario_type <- c(
     "equivalence/null",
     "similarity",
@@ -1514,7 +1514,7 @@ build.scenario.grid <- function() {
     "superiority with high censoring",
     "superiority with long follow-up"
   )
-
+  
   description <- c(
     "Treatment and control have equal death and hospitalization distributions.",
     "Treatment is slightly better for both death and hospitalization; near-null/similarity case.",
@@ -1530,9 +1530,9 @@ build.scenario.grid <- function() {
     "Treatment improves both endpoints, but random censoring is high.",
     "Treatment improves both endpoints with longer follow-up and low random censoring."
   )
-
+  
   n.scen <- length(scenario_id)
-
+  
   # Notes on parameters:
   #   HR < 1 means lower mortality hazard in treatment.
   #   evt.rate.scale.param.trt < evt.rate.scale.param.ctr means fewer recurrent
@@ -1547,7 +1547,7 @@ build.scenario.grid <- function() {
     N0 = rep(50, n.scen),
     N1 = rep(50, n.scen),
     mort.rate.ctrl = rep(base.mort, n.scen),
-
+    
     # Mortality scenario parameter.
     HR = c(
       1.00,  # equivalence/null
@@ -1564,10 +1564,10 @@ build.scenario.grid <- function() {
       0.60,  # high censoring superiority
       0.60   # low censoring, long follow-up superiority
     ),
-
+    
     evt.rate.shape.param = rep(5, n.scen),
     evt.rate.scale.param.ctr = rep(1.0, n.scen),
-
+    
     # Recurrent hospitalization scenario parameter.
     evt.rate.scale.param.trt = c(
       1.00,  # equivalence/null
@@ -1584,15 +1584,15 @@ build.scenario.grid <- function() {
       0.50,  # high censoring superiority
       0.50   # low censoring, long follow-up superiority
     ),
-
+    
     max.FU = c(
       1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3
     ),
-
+    
     censor.rate = c(
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1.5, 0.05
     ),
-
+    
     stringsAsFactors = FALSE
   )
 }
@@ -1617,45 +1617,45 @@ get_scenario_field <- function(scenario.row, field, default = NA_character_) {
 extract.trial.row <- function(scenario.row, sim.index, test.out, logrank.results, comp.stats,
                               threshold.info, error.message = NA_character_) {
   obs <- test.out$observed
-
+  
   death.first.primary <- obs$max.weighted.primary
   hosp.first.primary <- max_from_curve(obs$weighted.hosp.first, "hosp_first_primary", 0.50, 1.00)
   order.diff <- hosp.first.primary$WR[1] - death.first.primary$WR[1]
-
+  
   w.traditional.row <- get_selected_weighted_row(obs, "death_first", 0.5)
   w.primary.row <- get_selected_weighted_row(obs, "death_first", obs$max.weighted.primary$p[1])
   w.low.row <- get_selected_weighted_row(obs, "death_first", obs$max.weighted.low$p[1])
   w.full.row <- get_selected_weighted_row(obs, "death_first", obs$max.weighted.full$p[1])
   o.primary.row <- get_selected_weighted_row(obs, obs$max.order.primary$order[1], obs$max.order.primary$p[1])
   o.full.row <- get_selected_weighted_row(obs, obs$max.order.full$order[1], obs$max.order.full$p[1])
-
+  
   data.frame(
     scenario_id = scenario.row$scenario_id,
     scenario_type = get_scenario_field(scenario.row, "scenario_type"),
     description = get_scenario_field(scenario.row, "description"),
     sim = sim.index,
     error.message = error.message,
-
+    
     ordinaryWR = test.out$T.obs.max["ordinaryWR"],
     traditional.tie.count = w.traditional.row$tie.count[1],
     traditional.tie.pr = w.traditional.row$tie.pr[1],
     max.pvalue.ordinaryWR = test.out$p.value.max["ordinaryWR"],
     fixed.pvalue.ordinaryWR = test.out$p.value.fixed["ordinaryWR"],
-
+    
     maxWRp_primary = test.out$T.obs.max["maxWRp_primary"],
     selected.p.primary = obs$max.weighted.primary$p[1],
     weighted.primary.tie.count = w.primary.row$tie.count[1],
     weighted.primary.tie.pr = w.primary.row$tie.pr[1],
     max.pvalue.maxWRp_primary = test.out$p.value.max["maxWRp_primary"],
     fixed.pvalue.maxWRp_primary = test.out$p.value.fixed["fixedWRp_primary"],
-
+    
     maxWRp_low = test.out$T.obs.max["maxWRp_low"],
     selected.p.low = obs$max.weighted.low$p[1],
     weighted.low.tie.count = w.low.row$tie.count[1],
     weighted.low.tie.pr = w.low.row$tie.pr[1],
     max.pvalue.maxWRp_low = test.out$p.value.max["maxWRp_low"],
     fixed.pvalue.maxWRp_low = test.out$p.value.fixed["fixedWRp_low"],
-
+    
     maxWRp_full = test.out$T.obs.max["maxWRp_full"],
     selected.p.full = obs$max.weighted.full$p[1],
     weighted.full.tie.count = w.full.row$tie.count[1],
@@ -1663,7 +1663,7 @@ extract.trial.row <- function(scenario.row, sim.index, test.out, logrank.results
     selected.full.is.low.p = as.integer(obs$max.weighted.full$p[1] < 0.5),
     max.pvalue.maxWRp_full = test.out$p.value.max["maxWRp_full"],
     fixed.pvalue.maxWRp_full = test.out$p.value.fixed["fixedWRp_full"],
-
+    
     death.first.primary.WR = death.first.primary$WR[1],
     hosp.first.primary.WR = hosp.first.primary$WR[1],
     order.diff.hosp.minus.death = order.diff,
@@ -1675,7 +1675,7 @@ extract.trial.row <- function(scenario.row, sim.index, test.out, logrank.results
     order.primary.tie.pr = o.primary.row$tie.pr[1],
     max.pvalue.maxOrderWR_primary = test.out$p.value.max["maxOrderWR_primary"],
     fixed.pvalue.maxOrderWR_primary = test.out$p.value.fixed["fixedOrder_primary"],
-
+    
     maxOrderWR_full = test.out$T.obs.max["maxOrderWR_full"],
     selected.order.full = obs$max.order.full$order[1],
     selected.order.p.full = obs$max.order.full$p[1],
@@ -1684,7 +1684,7 @@ extract.trial.row <- function(scenario.row, sim.index, test.out, logrank.results
     selected.order.full.is.low.p = as.integer(obs$max.order.full$p[1] < 0.5),
     max.pvalue.maxOrderWR_full = test.out$p.value.max["maxOrderWR_full"],
     fixed.pvalue.maxOrderWR_full = test.out$p.value.fixed["fixedOrder_full"],
-
+    
     maxWRt = test.out$T.obs.max["maxWRt"],
     selected.t.years = obs$max.threshold$t[1],
     selected.t.months = obs$max.threshold$t.months[1],
@@ -1692,23 +1692,23 @@ extract.trial.row <- function(scenario.row, sim.index, test.out, logrank.results
     threshold.tie.pr = obs$max.threshold$pr.tie[1],
     max.pvalue.maxWRt = test.out$p.value.max["maxWRt"],
     fixed.pvalue.maxWRt = test.out$p.value.fixed["fixedWRt"],
-
+    
     true.hierarchical.tie.count = obs$counts$true.tie.pairs,
     true.hierarchical.tie.pr = obs$counts$true.tie.pr,
     total.pairs = obs$counts$total.pairs,
-
+    
     logrank.death.statistic = logrank.results$statistic[logrank.results$method == "Log-rank death endpoint"],
     logrank.death.p = logrank.results$p.value[logrank.results$method == "Log-rank death endpoint"],
     logrank.composite.statistic = logrank.results$statistic[logrank.results$method == "Log-rank composite endpoint"],
     logrank.composite.p = logrank.results$p.value[logrank.results$method == "Log-rank composite endpoint"],
-
+    
     death.event.rate.control = get_comp_arm_value(comp.stats, 0, "death.event.rate"),
     death.event.rate.treatment = get_comp_arm_value(comp.stats, 1, "death.event.rate"),
     composite.event.rate.control = get_comp_arm_value(comp.stats, 0, "composite.event.rate"),
     composite.event.rate.treatment = get_comp_arm_value(comp.stats, 1, "composite.event.rate"),
     mean.num.hosp.control = get_comp_arm_value(comp.stats, 0, "mean.num.hosp"),
     mean.num.hosp.treatment = get_comp_arm_value(comp.stats, 1, "mean.num.hosp"),
-
+    
     threshold.grid.months = paste(sprintf("%.1f", threshold.info$threshold.table$t.months), collapse = ", "),
     stringsAsFactors = FALSE
   )
@@ -1731,35 +1731,35 @@ extract.pointwise.rows <- function(scenario.row, sim.index, test.out) {
   out$description <- get_scenario_field(scenario.row, "description")
   out$sim <- sim.index
   out[, c("scenario_id", "scenario_type", "description", "sim",
-           setdiff(names(out), c("scenario_id", "scenario_type", "description", "sim"))),
+          setdiff(names(out), c("scenario_id", "scenario_type", "description", "sim"))),
       drop = FALSE]
 }
 
 summarise.pointwise.results <- function(pointwise, alpha = ALPHA) {
   if (nrow(pointwise) == 0) return(data.frame())
-
+  
   keys <- unique(pointwise[, c(
     "scenario_id", "family", "order", "parameter.name",
     "parameter", "parameter.months", "parameter.label"
   ), drop = FALSE])
-
+  
   out.list <- vector("list", nrow(keys))
-
+  
   for (i in seq_len(nrow(keys))) {
     key <- keys[i, , drop = FALSE]
     keep <- pointwise$scenario_id == key$scenario_id &
       pointwise$family == key$family &
       pointwise$parameter.name == key$parameter.name &
       abs(pointwise$parameter - key$parameter) < 1e-10
-
+    
     if (is.na(key$order)) {
       keep <- keep & is.na(pointwise$order)
     } else {
       keep <- keep & pointwise$order == key$order
     }
-
+    
     d <- pointwise[keep, , drop = FALSE]
-
+    
     out.list[[i]] <- data.frame(
       scenario_id = key$scenario_id,
       scenario_type = if ("scenario_type" %in% names(d)) d$scenario_type[1] else NA_character_,
@@ -1787,7 +1787,7 @@ summarise.pointwise.results <- function(pointwise, alpha = ALPHA) {
       stringsAsFactors = FALSE
     )
   }
-
+  
   out <- do.call(rbind, out.list)
   rownames(out) <- NULL
   out
@@ -1798,7 +1798,7 @@ summarise.pointwise.results <- function(pointwise, alpha = ALPHA) {
 run.one.simulation <- function(scenario.row, sim.index, seed, B = B_PERM, save.example = FALSE,
                                scenario.outdir = OUTDIR) {
   set.seed(seed)
-
+  
   ds <- simulate.one.dataset(
     N = c(scenario.row$N0, scenario.row$N1),
     mort.rate.ctrl = scenario.row$mort.rate.ctrl,
@@ -1808,12 +1808,12 @@ run.one.simulation <- function(scenario.row, sim.index, seed, B = B_PERM, save.e
     evt.rate.scale.param.trt = scenario.row$evt.rate.scale.param.trt,
     max.followup = scenario.row$max.FU
   )
-
+  
   ds <- apply.random.censoring(ds, censor.rate = scenario.row$censor.rate, seed = seed + 17)
   ds <- prepare.ds.fast(ds)
-
+  
   threshold.info <- choose.threshold.grid.primary(ds)
-
+  
   test.out <- perm.test.revised(
     ds = ds,
     B = B,
@@ -1822,10 +1822,10 @@ run.one.simulation <- function(scenario.row, sim.index, seed, B = B_PERM, save.e
     t.grid = threshold.info$t.grid,
     verbose = FALSE
   )
-
+  
   logrank.results <- run.logrank.tests(ds)
   comp.stats <- composite.statistics(ds)
-
+  
   if (save.example) {
     save.one.dataset.outputs(
       ds = ds,
@@ -1842,7 +1842,7 @@ run.one.simulation <- function(scenario.row, sim.index, seed, B = B_PERM, save.e
       file.path(scenario.outdir, paste0("example_sim", sim.index, "_full_object.rds"))
     )
   }
-
+  
   summary.row <- extract.trial.row(
     scenario.row = scenario.row,
     sim.index = sim.index,
@@ -1851,13 +1851,13 @@ run.one.simulation <- function(scenario.row, sim.index, seed, B = B_PERM, save.e
     comp.stats = comp.stats,
     threshold.info = threshold.info
   )
-
+  
   pointwise.rows <- extract.pointwise.rows(
     scenario.row = scenario.row,
     sim.index = sim.index,
     test.out = test.out
   )
-
+  
   list(summary.row = summary.row, pointwise.rows = pointwise.rows)
 }
 
@@ -1981,7 +1981,7 @@ get.power.value <- function(power.table, method) {
 # tables and figures
 make.pathway.results.table <- function(test.out, logrank.results = NULL) {
   obs <- test.out$observed
-
+  
   w.traditional <- get_selected_weighted_row(obs, "death_first", 0.5)
   w.primary <- get_selected_weighted_row(obs, "death_first", test.out$selected.fixed$p.primary)
   w.low <- get_selected_weighted_row(obs, "death_first", test.out$selected.fixed$p.low)
@@ -1989,15 +1989,15 @@ make.pathway.results.table <- function(test.out, logrank.results = NULL) {
   o.primary <- get_selected_weighted_row(obs, test.out$selected.fixed$order.primary, test.out$selected.fixed$order.p.primary)
   o.full <- get_selected_weighted_row(obs, test.out$selected.fixed$order.full, test.out$selected.fixed$order.p.full)
   t.row <- get_selected_threshold_row(obs, test.out$selected.fixed$t)
-
+  
   get_tie_count <- function(x) if (is.null(x)) NA_real_ else as.numeric(x$tie.count[1])
   get_tie_pr <- function(x) if (is.null(x)) NA_real_ else as.numeric(x$tie.pr[1])
-
+  
   method.id <- c(
     "ordinaryWR", "maxWRp_primary", "maxWRp_low", "maxWRp_full",
     "maxOrderWR_primary", "maxOrderWR_full", "maxWRt"
   )
-
+  
   out <- data.frame(
     method = method.id,
     method_label = method.long.label(method.id),
@@ -2060,7 +2060,7 @@ make.pathway.results.table <- function(test.out, logrank.results = NULL) {
     B = test.out$B,
     stringsAsFactors = FALSE
   )
-
+  
   if (!is.null(logrank.results)) {
     lr.death <- logrank.results[logrank.results$method == "Log-rank death endpoint", , drop = FALSE]
     lr.comp <- logrank.results[logrank.results$method == "Log-rank composite endpoint", , drop = FALSE]
@@ -2083,7 +2083,7 @@ make.pathway.results.table <- function(test.out, logrank.results = NULL) {
     )
     out <- rbind(out, lr.rows)
   }
-
+  
   out
 }
 
@@ -2099,7 +2099,7 @@ plot.pvalue.bar <- function(tab, outdir, filename, title, p.col = "permutation_p
     d <- d[order(d$method), , drop = FALSE]
   }
   d <- d[order(d[[p.col]], decreasing = TRUE), , drop = FALSE]
-
+  
   save_png(outdir, filename, width = 2100, height = 1150)
   old.par <- par(no.readonly = TRUE)
   par(mar = c(5.2, 13.0, 3.2, 1.2))
@@ -2130,7 +2130,7 @@ plot.example.pvalue.figures <- function(pathway.tab, outdir, prefix) {
   weighted.methods <- c("ordinaryWR", "maxWRp_primary", "maxWRp_low", "maxWRp_full")
   logrank.methods <- c("logrank_death", "logrank_composite")
   threshold.methods <- c("maxWRt")
-
+  
   plot.pvalue.bar(pathway.tab, outdir, paste0(prefix, "_pvalue_all_methods_with_logrank.png"),
                   "All method p-values", "permutation_p_value", all.methods)
   plot.pvalue.bar(pathway.tab, outdir, paste0(prefix, "_pvalue_WR_pathways_only_no_logrank.png"),
@@ -2148,7 +2148,7 @@ plot.permutation.null.revised <- function(test.out, method, outdir, prefix) {
   x <- as.numeric(test.out$T.perm.max[, method])
   obs.value <- as.numeric(test.out$T.obs.max[method])
   p.value <- as.numeric(test.out$p.value.max[method])
-
+  
   save_png(outdir, paste0(prefix, "_perm_null_", method, ".png"), width = 1600, height = 1000)
   old.par <- par(no.readonly = TRUE)
   par(mar = c(5.2, 5.2, 3.2, 1.2))
@@ -2178,7 +2178,7 @@ save.one.dataset.outputs <- function(ds, test.out, threshold.info, logrank.resul
                                      comp.stats, outdir, prefix = "example") {
   if (!dir.exists(outdir)) dir.create(outdir, recursive = TRUE)
   obs <- test.out$observed
-
+  
   write.csv(obs$weighted.death.first, file.path(outdir, paste0(prefix, "_weighted_death_first_curve.csv")), row.names = FALSE)
   write.csv(obs$weighted.hosp.first, file.path(outdir, paste0(prefix, "_weighted_hospitalization_first_curve.csv")), row.names = FALSE)
   write.csv(obs$threshold, file.path(outdir, paste0(prefix, "_threshold_curve.csv")), row.names = FALSE)
@@ -2189,13 +2189,13 @@ save.one.dataset.outputs <- function(ds, test.out, threshold.info, logrank.resul
   write.csv(make.pvalue.table(test.out, logrank.results), file.path(outdir, paste0(prefix, "_pvalue_table.csv")), row.names = FALSE)
   write.csv(make.selected.max.table(test.out), file.path(outdir, paste0(prefix, "_selected_max_parameter_table.csv")), row.names = FALSE)
   write.csv(make.pointwise.table(test.out), file.path(outdir, paste0(prefix, "_pointwise_pvalue_and_tie_table.csv")), row.names = FALSE)
-
+  
   pathway.tab <- make.pathway.results.table(test.out, logrank.results)
   write.csv(pathway.tab, file.path(outdir, paste0(prefix, "_pathway_results_table.csv")), row.names = FALSE)
-
+  
   max.vs.fixed.table <- make.max.vs.fixed.table(test.out)
   write.csv(max.vs.fixed.table, file.path(outdir, paste0(prefix, "_max_vs_fixed_parameter_pvalues.csv")), row.names = FALSE)
-
+  
   plot.weighted.death.first(obs, outdir, prefix)
   plot.order.curves(obs, outdir, prefix)
   plot.threshold.curve(obs, outdir, prefix, p.value = test.out$p.value.max["maxWRt"])
@@ -2212,7 +2212,7 @@ save.one.dataset.outputs <- function(ds, test.out, threshold.info, logrank.resul
 summarise.scenario.results <- function(res, alpha = ALPHA) {
   ok <- res[is.na(res$error.message) | res$error.message == "", , drop = FALSE]
   if (nrow(ok) == 0) return(list(power = data.frame(), averages = data.frame()))
-
+  
   method <- c(
     "ordinaryWR",
     "maxWRp_primary", "fixedWRp_primary",
@@ -2233,7 +2233,7 @@ summarise.scenario.results <- function(res, alpha = ALPHA) {
     "max.pvalue.maxWRt", "fixed.pvalue.maxWRt",
     "logrank.death.p", "logrank.composite.p"
   )
-
+  
   power <- data.frame(
     method = method,
     method_label = method.long.label(method),
@@ -2242,7 +2242,7 @@ summarise.scenario.results <- function(res, alpha = ALPHA) {
     nsim.available = nrow(ok),
     stringsAsFactors = FALSE
   )
-
+  
   averages <- data.frame(
     nsim.available = nrow(ok),
     mean.ordinaryWR = safe.mean(ok$ordinaryWR),
@@ -2250,21 +2250,21 @@ summarise.scenario.results <- function(res, alpha = ALPHA) {
     mean.fixed.pvalue.ordinaryWR = safe.mean(ok$fixed.pvalue.ordinaryWR),
     mean.traditional.tie.count = safe.mean(ok$traditional.tie.count),
     mean.traditional.tie.pr = safe.mean(ok$traditional.tie.pr),
-
+    
     mean.maxWRp.primary = safe.mean(ok$maxWRp_primary),
     mean.selected.p.primary = safe.mean(ok$selected.p.primary),
     mean.max.pvalue.maxWRp.primary = safe.mean(ok$max.pvalue.maxWRp_primary),
     mean.fixed.pvalue.maxWRp.primary = safe.mean(ok$fixed.pvalue.maxWRp_primary),
     mean.weighted.primary.tie.count = safe.mean(ok$weighted.primary.tie.count),
     mean.weighted.primary.tie.pr = safe.mean(ok$weighted.primary.tie.pr),
-
+    
     mean.maxWRp.low = safe.mean(ok$maxWRp_low),
     mean.selected.p.low = safe.mean(ok$selected.p.low),
     mean.max.pvalue.maxWRp.low = safe.mean(ok$max.pvalue.maxWRp_low),
     mean.fixed.pvalue.maxWRp.low = safe.mean(ok$fixed.pvalue.maxWRp_low),
     mean.weighted.low.tie.count = safe.mean(ok$weighted.low.tie.count),
     mean.weighted.low.tie.pr = safe.mean(ok$weighted.low.tie.pr),
-
+    
     mean.maxWRp.full = safe.mean(ok$maxWRp_full),
     mean.selected.p.full = safe.mean(ok$selected.p.full),
     prop.full.selected.p.below.0.5 = mean(ok$selected.full.is.low.p == 1, na.rm = TRUE),
@@ -2272,7 +2272,7 @@ summarise.scenario.results <- function(res, alpha = ALPHA) {
     mean.fixed.pvalue.maxWRp.full = safe.mean(ok$fixed.pvalue.maxWRp_full),
     mean.weighted.full.tie.count = safe.mean(ok$weighted.full.tie.count),
     mean.weighted.full.tie.pr = safe.mean(ok$weighted.full.tie.pr),
-
+    
     mean.maxOrderWR.primary = safe.mean(ok$maxOrderWR_primary),
     prop.order.changed.primary = mean(ok$order.changed.primary == 1, na.rm = TRUE),
     mean.order.diff.hosp.minus.death = safe.mean(ok$order.diff.hosp.minus.death),
@@ -2282,7 +2282,7 @@ summarise.scenario.results <- function(res, alpha = ALPHA) {
     mean.fixed.pvalue.maxOrderWR.primary = safe.mean(ok$fixed.pvalue.maxOrderWR_primary),
     mean.order.primary.tie.count = safe.mean(ok$order.primary.tie.count),
     mean.order.primary.tie.pr = safe.mean(ok$order.primary.tie.pr),
-
+    
     mean.maxOrderWR.full = safe.mean(ok$maxOrderWR_full),
     mean.selected.order.p.full = safe.mean(ok$selected.order.p.full),
     mode.selected.order.full = clean.order.label(mode.string(ok$selected.order.full)),
@@ -2291,7 +2291,7 @@ summarise.scenario.results <- function(res, alpha = ALPHA) {
     mean.fixed.pvalue.maxOrderWR.full = safe.mean(ok$fixed.pvalue.maxOrderWR_full),
     mean.order.full.tie.count = safe.mean(ok$order.full.tie.count),
     mean.order.full.tie.pr = safe.mean(ok$order.full.tie.pr),
-
+    
     mean.maxWRt = safe.mean(ok$maxWRt),
     mean.selected.t.months = safe.mean(ok$selected.t.months),
     sd.selected.t.months = safe_sd(ok$selected.t.months),
@@ -2299,7 +2299,7 @@ summarise.scenario.results <- function(res, alpha = ALPHA) {
     mean.fixed.pvalue.maxWRt = safe.mean(ok$fixed.pvalue.maxWRt),
     mean.threshold.tie.count = safe.mean(ok$threshold.tie.count),
     mean.threshold.tie.pr = safe.mean(ok$threshold.tie.pr),
-
+    
     mean.true.hierarchical.tie.count = safe.mean(ok$true.hierarchical.tie.count),
     mean.true.hierarchical.tie.pr = safe.mean(ok$true.hierarchical.tie.pr),
     mean.logrank.death.statistic = safe.mean(ok$logrank.death.statistic),
@@ -2314,14 +2314,14 @@ summarise.scenario.results <- function(res, alpha = ALPHA) {
     mean.num.hosp.treatment = safe.mean(ok$mean.num.hosp.treatment),
     stringsAsFactors = FALSE
   )
-
+  
   list(power = power, averages = averages)
 }
 
 make.scenario.method.comparison <- function(res, power.table, alpha = ALPHA) {
   ok <- res[is.na(res$error.message) | res$error.message == "", , drop = FALSE]
   if (nrow(ok) == 0) return(data.frame())
-
+  
   specs <- data.frame(
     method = c(
       "ordinaryWR", "maxWRp_primary", "maxWRp_low", "maxWRp_full",
@@ -2372,7 +2372,7 @@ make.scenario.method.comparison <- function(res, power.table, alpha = ALPHA) {
     ),
     stringsAsFactors = FALSE
   )
-
+  
   rows <- vector("list", nrow(specs))
   for (i in seq_len(nrow(specs))) {
     sp <- specs[i, , drop = FALSE]
@@ -2384,7 +2384,7 @@ make.scenario.method.comparison <- function(res, power.table, alpha = ALPHA) {
     tie.count <- if (!is.na(sp$tie.count.column)) safe.col(ok, sp$tie.count.column) else rep(NA_real_, nrow(ok))
     tie.pr <- if (!is.na(sp$tie.pr.column)) safe.col(ok, sp$tie.pr.column) else rep(NA_real_, nrow(ok))
     sel.order <- if (!is.na(sp$selected.order.column) && sp$selected.order.column %in% names(ok)) as.character(ok[[sp$selected.order.column]]) else rep(NA_character_, nrow(ok))
-
+    
     selected.summary <- NA_character_
     if (sp$method == "ordinaryWR") selected.summary <- "p = 0.50; death first"
     if (sp$method %in% c("maxWRp_primary", "maxWRp_low", "maxWRp_full")) {
@@ -2397,7 +2397,7 @@ make.scenario.method.comparison <- function(res, power.table, alpha = ALPHA) {
     if (sp$method == "maxWRt") {
       selected.summary <- paste0("mean t = ", sprintf("%.1f", safe.mean(sel.t)), " months")
     }
-
+    
     rows[[i]] <- data.frame(
       scenario_id = ok$scenario_id[1],
       scenario_label = scenario.display.label(ok$scenario_id[1]),
@@ -2431,7 +2431,7 @@ make.scenario.method.comparison <- function(res, power.table, alpha = ALPHA) {
       stringsAsFactors = FALSE
     )
   }
-
+  
   out <- do.call(rbind, rows)
   rownames(out) <- NULL
   out
@@ -2441,7 +2441,7 @@ plot.scenario.method.comparison <- function(method.table, outdir, prefix) {
   if (nrow(method.table) == 0) return(invisible(NULL))
   if (!dir.exists(outdir)) dir.create(outdir, recursive = TRUE)
   title.label <- scenario.display.label(prefix)
-
+  
   # Scenario-level permutation p-value comparison for all pathways and log-rank tests.
   pvalue.methods <- c("ordinaryWR", "maxWRp_primary", "maxWRp_low", "maxWRp_full", "maxOrderWR_primary", "maxOrderWR_full", "maxWRt", "logrank_death", "logrank_composite")
   pvtab <- method.table[method.table$method %in% pvalue.methods, , drop = FALSE]
@@ -2463,7 +2463,7 @@ plot.scenario.method.comparison <- function(method.table, outdir, prefix) {
     par(old.par)
     dev.off()
   }
-
+  
   # Scenario-level max-statistic vs fixed-selected p-value comparison for WR pathways.
   fixed.methods <- c("ordinaryWR", "maxWRp_primary", "maxWRp_low", "maxWRp_full", "maxOrderWR_primary", "maxOrderWR_full", "maxWRt")
   ftab <- method.table[method.table$method %in% fixed.methods, , drop = FALSE]
@@ -2489,7 +2489,7 @@ plot.scenario.method.comparison <- function(method.table, outdir, prefix) {
     par(old.par)
     dev.off()
   }
-
+  
   # Scenario-level power comparison for all pathways and log-rank tests.
   powtab <- pvtab
   if (nrow(powtab) > 0) {
@@ -2527,12 +2527,12 @@ run.scenario <- function(scenario.row,
   scenario.id <- scenario.row$scenario_id
   scenario.outdir <- file.path(outdir, scenario.id)
   if (!dir.exists(scenario.outdir)) dir.create(scenario.outdir, recursive = TRUE)
-
+  
   raw.rds <- file.path(scenario.outdir, paste0(scenario.id, "_raw_results.rds"))
   raw.csv <- file.path(scenario.outdir, paste0(scenario.id, "_raw_results.csv"))
   pointwise.rds <- file.path(scenario.outdir, paste0(scenario.id, "_pointwise_results.rds"))
   pointwise.csv <- file.path(scenario.outdir, paste0(scenario.id, "_pointwise_results.csv"))
-
+  
   if (resume && file.exists(raw.rds)) {
     res <- readRDS(raw.rds)
     completed <- if (nrow(res) == 0) 0 else max(res$sim, na.rm = TRUE)
@@ -2543,7 +2543,7 @@ run.scenario <- function(scenario.row,
     pointwise.res <- data.frame()
     completed <- 0
   }
-
+  
   if (!is.null(scenario.index) && !is.na(scenario.index)) {
     scenario.seed.index <- scenario.index
   } else {
@@ -2553,14 +2553,14 @@ run.scenario <- function(scenario.row,
       scenario.seed.index <- (sum(utf8ToInt(as.character(scenario.id))) %% 10000) + 1
     }
   }
-
+  
   if (completed >= nsim) {
     if (verbose) cat("Scenario", scenario.id, "already complete.\n")
   } else {
     for (s in seq.int(completed + 1, nsim)) {
       if (verbose) cat("Scenario", scenario.id, ": simulation", s, "of", nsim, "\n")
       sim.seed <- master.seed + scenario.seed.index * 1000000 + s * 10007
-
+      
       sim.out <- tryCatch(
         run.one.simulation(
           scenario.row = scenario.row,
@@ -2585,12 +2585,12 @@ run.scenario <- function(scenario.row,
           )
         }
       )
-
+      
       res <- rbind_fill_base(res, sim.out$summary.row)
       if (nrow(sim.out$pointwise.rows) > 0) {
         pointwise.res <- rbind_fill_base(pointwise.res, sim.out$pointwise.rows)
       }
-
+      
       if (s %% checkpoint.every == 0 || s == nsim) {
         saveRDS(res, raw.rds)
         write.csv(res, raw.csv, row.names = FALSE)
@@ -2599,11 +2599,11 @@ run.scenario <- function(scenario.row,
       }
     }
   }
-
+  
   summary.out <- summarise.scenario.results(res, alpha = ALPHA)
   pointwise.summary <- summarise.pointwise.results(pointwise.res, alpha = ALPHA)
   method.comparison <- make.scenario.method.comparison(res, summary.out$power, alpha = ALPHA)
-
+  
   if (nrow(summary.out$power) > 0) {
     summary.out$power$scenario_id <- scenario.id
     summary.out$power$scenario_label <- scenario.display.label(scenario.id)
@@ -2616,12 +2616,12 @@ run.scenario <- function(scenario.row,
     write.csv(summary.out$power, file.path(scenario.outdir, paste0(scenario.id, "_power_summary.csv")), row.names = FALSE)
     write.csv(summary.out$averages, file.path(scenario.outdir, paste0(scenario.id, "_average_statistics.csv")), row.names = FALSE)
   }
-
+  
   if (nrow(method.comparison) > 0) {
     write.csv(method.comparison, file.path(scenario.outdir, paste0(scenario.id, "_pathway_method_comparison.csv")), row.names = FALSE)
     plot.scenario.method.comparison(method.comparison, scenario.outdir, scenario.id)
   }
-
+  
   if (nrow(pointwise.summary) > 0) {
     pointwise.summary$scenario_id <- scenario.id
     pointwise.summary$scenario_label <- scenario.display.label(scenario.id)
@@ -2629,7 +2629,7 @@ run.scenario <- function(scenario.row,
     pointwise.summary$description <- get_scenario_field(scenario.row, "description")
     write.csv(pointwise.summary, file.path(scenario.outdir, paste0(scenario.id, "_pointwise_average_pvalue_tie_summary.csv")), row.names = FALSE)
   }
-
+  
   list(
     raw = res,
     pointwise = pointwise.res,
@@ -2750,7 +2750,7 @@ run.all.scenarios <- function(scenario.grid = build.scenario.grid(),
     scenario.grid$scenario_label <- scenario.display.label(scenario.grid$scenario_id)
   }
   write.csv(scenario.grid, file.path(outdir, "GLOBAL_scenario_config.csv"), row.names = FALSE)
-
+  
   settings.table <- data.frame(
     setting = c(
       "NSIM", "B_PERM", "MASTER_SEED", "ALPHA", "number_of_scenarios",
@@ -2774,20 +2774,20 @@ run.all.scenarios <- function(scenario.grid = build.scenario.grid(),
     stringsAsFactors = FALSE
   )
   write.csv(settings.table, file.path(outdir, "GLOBAL_settings.csv"), row.names = FALSE)
-
+  
   cat("\n===== Simulation settings =====\n")
   cat("Output folder:", outdir, "\n")
   cat("NSIM =", nsim, "; B_PERM =", B, "; scenarios =", nrow(scenario.grid), "\n")
   cat("Primary weighted p grid: [", min(P_GRID_PRIMARY), ", ", max(P_GRID_PRIMARY), "]\n", sep = "")
   cat("Exploratory low-p grid: [", min(P_GRID_EXPLORATORY), ", ", max(P_GRID_EXPLORATORY), "]\n", sep = "")
-
+  
   all.raw <- data.frame()
   all.pointwise <- data.frame()
   all.power <- data.frame()
   all.averages <- data.frame()
   all.method.comparison <- data.frame()
   all.pointwise.summary <- data.frame()
-
+  
   for (i in seq_len(nrow(scenario.grid))) {
     scenario.row <- scenario.grid[i, , drop = FALSE]
     out.i <- run.scenario(
@@ -2801,14 +2801,14 @@ run.all.scenarios <- function(scenario.grid = build.scenario.grid(),
       verbose = VERBOSE,
       scenario.index = i
     )
-
+    
     all.raw <- rbind_fill_base(all.raw, out.i$raw)
     all.pointwise <- rbind_fill_base(all.pointwise, out.i$pointwise)
     all.power <- rbind_fill_base(all.power, out.i$power)
     all.averages <- rbind_fill_base(all.averages, out.i$averages)
     all.method.comparison <- rbind_fill_base(all.method.comparison, out.i$method.comparison)
     all.pointwise.summary <- rbind_fill_base(all.pointwise.summary, out.i$pointwise.summary)
-
+    
     write.csv(all.raw, file.path(outdir, "GLOBAL_all_scenarios_raw_results.csv"), row.names = FALSE)
     write.csv(all.pointwise, file.path(outdir, "GLOBAL_all_scenarios_pointwise_results.csv"), row.names = FALSE)
     write.csv(all.power, file.path(outdir, "GLOBAL_all_scenarios_power_summary.csv"), row.names = FALSE)
@@ -2816,15 +2816,15 @@ run.all.scenarios <- function(scenario.grid = build.scenario.grid(),
     write.csv(all.method.comparison, file.path(outdir, "GLOBAL_all_scenarios_pathway_method_comparison.csv"), row.names = FALSE)
     write.csv(all.pointwise.summary, file.path(outdir, "GLOBAL_all_scenarios_pointwise_average_pvalue_tie_summary.csv"), row.names = FALSE)
   }
-
+  
   plot.global.power.clean(all.power, outdir)
   plot.global.permutation.pvalues.clean(all.method.comparison, outdir)
   plot.global.max.fixed.pvalues.clean(all.method.comparison, outdir)
   plot.global.low.p.clean(all.averages, outdir)
-
+  
   manifest <- data.frame(file = list.files(outdir, recursive = TRUE), stringsAsFactors = FALSE)
   write.csv(manifest, file.path(outdir, "GLOBAL_output_manifest.csv"), row.names = FALSE)
-
+  
   saveRDS(
     list(
       scenario.grid = scenario.grid,
@@ -2847,7 +2847,7 @@ run.all.scenarios <- function(scenario.grid = build.scenario.grid(),
     ),
     file.path(outdir, "GLOBAL_full_results_bundle.rds")
   )
-
+  
   cat("\n===== All scenarios complete =====\n")
   cat("Output folder:", outdir, "\n")
   cat("Full-run settings: NSIM =", nsim, ", B_PERM =", B, "\n")
@@ -2873,7 +2873,7 @@ run.all.scenarios <- function(scenario.grid = build.scenario.grid(),
   cat("  Sxx_max_vs_fixed_selected_pvalues.png\n")
   cat("  Sxx_power_comparison.png\n")
   cat("  example_sim1_* DIG-style figures and tables\n")
-
+  
   invisible(list(
     raw = all.raw,
     pointwise = all.pointwise,
@@ -2892,7 +2892,7 @@ fast.wr.engine.revised <- function(ds,
                                    eps = EPS_WR) {
   if (is.null(ds$hosp.flat)) ds <- prepare.ds.fast(ds)
   tab <- ds$table.output
-
+  
   core <- fast_wr_core_revised_cpp(
     futime = as.numeric(tab$FUTIME),
     cnsr = as.integer(tab$CNSR),
@@ -2904,7 +2904,7 @@ fast.wr.engine.revised <- function(ds,
     t_grid = as.numeric(t.grid),
     eps = eps
   )
-
+  
   total.pairs <- as.numeric(core$total_pairs)
   D1.win <- as.numeric(core$D1_win)
   D1.loss <- as.numeric(core$D1_loss)
@@ -2914,7 +2914,7 @@ fast.wr.engine.revised <- function(ds,
   H1.loss <- as.numeric(core$H1_loss)
   D2.win <- as.numeric(core$D2_win)
   D2.loss <- as.numeric(core$D2_loss)
-
+  
   weighted.death.first <- data.frame(
     order = "death_first",
     p = as.numeric(core$p_grid),
@@ -2927,7 +2927,7 @@ fast.wr.engine.revised <- function(ds,
   weighted.death.first$loss.pairs <- ifelse(weighted.death.first$p >= 1, D1.loss, D1.loss + H2.loss)
   weighted.death.first$tie.count <- total.pairs - weighted.death.first$win.pairs - weighted.death.first$loss.pairs
   weighted.death.first$tie.pr <- weighted.death.first$tie.count / total.pairs
-
+  
   weighted.hosp.first <- data.frame(
     order = "hospitalization_first",
     p = as.numeric(core$p_grid),
@@ -2940,9 +2940,9 @@ fast.wr.engine.revised <- function(ds,
   weighted.hosp.first$loss.pairs <- ifelse(weighted.hosp.first$p >= 1, H1.loss, H1.loss + D2.loss)
   weighted.hosp.first$tie.count <- total.pairs - weighted.hosp.first$win.pairs - weighted.hosp.first$loss.pairs
   weighted.hosp.first$tie.pr <- weighted.hosp.first$tie.count / total.pairs
-
+  
   weighted.all.orders <- rbind(weighted.death.first, weighted.hosp.first)
-
+  
   threshold <- data.frame(
     t = as.numeric(core$t_grid),
     t.months = as.numeric(core$t_grid) * 12,
@@ -2956,18 +2956,18 @@ fast.wr.engine.revised <- function(ds,
   )
   threshold$tie.count <- total.pairs - threshold$wins - threshold$losses
   best.t.idx <- which.max(threshold$WR)
-
+  
   p.low.values <- p.grid[p.grid < 0.5]
   p.primary.values <- p.grid[p.grid >= 0.5]
   p.low.lower <- if (length(p.low.values) > 0) min(p.low.values) else NA_real_
   p.low.upper <- if (length(p.low.values) > 0) max(p.low.values) else NA_real_
   p.primary.lower <- if (length(p.primary.values) > 0) min(p.primary.values) else NA_real_
   p.primary.upper <- if (length(p.primary.values) > 0) max(p.primary.values) else NA_real_
-
+  
   traditional.death.first <- max_from_curve(weighted.death.first, "ordinaryWR_death_first", 0.50, 0.50)
   traditional.hosp.first <- max_from_curve(weighted.hosp.first, "ordinaryWR_hosp_first", 0.50, 0.50)
   max.traditional.order <- max_from_curve(weighted.all.orders, "traditionalOrderWR", 0.50, 0.50)
-
+  
   list(
     ordinaryWR = as.numeric(core$ordinaryWR),
     ordinary.win.score = as.numeric(core$ordinary_win_score),
@@ -3032,7 +3032,7 @@ perm.test.revised <- function(ds,
   ds <- prepare.ds.fast(ds)
   set.seed(seed)
   obs <- fast.wr.engine.revised(ds, p.grid = p.grid, t.grid = t.grid)
-
+  
   max.names <- c(
     "ordinaryWR",
     "traditionalWR_hosp_first",
@@ -3047,7 +3047,7 @@ perm.test.revised <- function(ds,
     "fixedWRp_primary", "fixedWRp_low", "fixedWRp_full",
     "fixedOrder_primary", "fixedOrder_full", "fixedWRt"
   )
-
+  
   fixed.traditional.order <- obs$max.traditional.order$order[1]
   fixed.p.primary <- obs$max.weighted.primary$p[1]
   fixed.p.low <- obs$max.weighted.low$p[1]
@@ -3057,7 +3057,7 @@ perm.test.revised <- function(ds,
   fixed.order.full <- obs$max.order.full$order[1]
   fixed.order.p.full <- obs$max.order.full$p[1]
   fixed.t <- obs$max.threshold$t[1]
-
+  
   T.obs.max <- c(
     ordinaryWR = obs$ordinaryWR,
     traditionalWR_hosp_first = wr_at_order_p(obs, "hospitalization_first", 0.50),
@@ -3069,7 +3069,7 @@ perm.test.revised <- function(ds,
     maxOrderWR_full = obs$max.order.full$WR[1],
     maxWRt = obs$max.threshold$WR[1]
   )
-
+  
   T.obs.fixed <- c(
     ordinaryWR = obs$ordinaryWR,
     fixedTraditionalHospFirst = wr_at_order_p(obs, "hospitalization_first", 0.50),
@@ -3081,17 +3081,17 @@ perm.test.revised <- function(ds,
     fixedOrder_full = wr_at_order_p(obs, fixed.order.full, fixed.order.p.full),
     fixedWRt = threshold_at_t(obs, fixed.t)
   )
-
+  
   perm.max <- matrix(NA_real_, nrow = B, ncol = length(max.names)); colnames(perm.max) <- max.names
   perm.fixed <- matrix(NA_real_, nrow = B, ncol = length(fixed.names)); colnames(perm.fixed) <- fixed.names
-
+  
   perm.pointwise.death.first <- matrix(NA_real_, nrow = B, ncol = length(p.grid))
   perm.pointwise.hosp.first <- matrix(NA_real_, nrow = B, ncol = length(p.grid))
   perm.pointwise.threshold <- matrix(NA_real_, nrow = B, ncol = length(t.grid))
   colnames(perm.pointwise.death.first) <- paste0("p_", sprintf("%.2f", p.grid))
   colnames(perm.pointwise.hosp.first) <- paste0("p_", sprintf("%.2f", p.grid))
   colnames(perm.pointwise.threshold) <- paste0("t_months_", sprintf("%.1f", t.grid * 12))
-
+  
   selected.perm <- data.frame(
     b = seq_len(B),
     selected.traditional.order = NA_character_,
@@ -3100,7 +3100,7 @@ perm.test.revised <- function(ds,
     selected.order.full = NA_character_, selected.order.p.full = NA_real_,
     selected.t = NA_real_, stringsAsFactors = FALSE
   )
-
+  
   perm.seeds <- seed + seq_len(B) * 1009L
   for (b in seq_len(B)) {
     if (verbose && (b == 1 || b == B || b %% 50 == 0)) cat("  Permutation", b, "of", B, "\n")
@@ -3108,11 +3108,11 @@ perm.test.revised <- function(ds,
     ds.b <- ds
     ds.b$table.output$ARM <- sample(ds$table.output$ARM, replace = FALSE)
     out.b <- fast.wr.engine.revised(ds.b, p.grid = p.grid, t.grid = t.grid)
-
+    
     perm.pointwise.death.first[b, ] <- out.b$weighted.death.first$WR
     perm.pointwise.hosp.first[b, ] <- out.b$weighted.hosp.first$WR
     perm.pointwise.threshold[b, ] <- out.b$threshold$WR
-
+    
     perm.max[b, "ordinaryWR"] <- out.b$ordinaryWR
     perm.max[b, "traditionalWR_hosp_first"] <- wr_at_order_p(out.b, "hospitalization_first", 0.50)
     perm.max[b, "traditionalOrderWR"] <- out.b$max.traditional.order$WR[1]
@@ -3122,7 +3122,7 @@ perm.test.revised <- function(ds,
     perm.max[b, "maxOrderWR_primary"] <- out.b$max.order.primary$WR[1]
     perm.max[b, "maxOrderWR_full"] <- out.b$max.order.full$WR[1]
     perm.max[b, "maxWRt"] <- out.b$max.threshold$WR[1]
-
+    
     perm.fixed[b, "ordinaryWR"] <- out.b$ordinaryWR
     perm.fixed[b, "fixedTraditionalHospFirst"] <- wr_at_order_p(out.b, "hospitalization_first", 0.50)
     perm.fixed[b, "fixedTraditionalOrderWR"] <- wr_at_order_p(out.b, fixed.traditional.order, 0.50)
@@ -3132,7 +3132,7 @@ perm.test.revised <- function(ds,
     perm.fixed[b, "fixedOrder_primary"] <- wr_at_order_p(out.b, fixed.order.primary, fixed.order.p.primary)
     perm.fixed[b, "fixedOrder_full"] <- wr_at_order_p(out.b, fixed.order.full, fixed.order.p.full)
     perm.fixed[b, "fixedWRt"] <- threshold_at_t(out.b, fixed.t)
-
+    
     selected.perm$selected.traditional.order[b] <- out.b$max.traditional.order$order[1]
     selected.perm$selected.p.primary[b] <- out.b$max.weighted.primary$p[1]
     selected.perm$selected.p.low[b] <- out.b$max.weighted.low$p[1]
@@ -3143,14 +3143,14 @@ perm.test.revised <- function(ds,
     selected.perm$selected.order.p.full[b] <- out.b$max.order.full$p[1]
     selected.perm$selected.t[b] <- out.b$max.threshold$t[1]
   }
-
+  
   calc_perm_p <- function(perm.vec, obs.value) (1 + sum(perm.vec >= obs.value, na.rm = TRUE)) / (sum(!is.na(perm.vec)) + 1)
   p.value.max <- sapply(names(T.obs.max), function(nm) calc_perm_p(perm.max[, nm], T.obs.max[nm]))
   p.value.fixed <- sapply(names(T.obs.fixed), function(nm) calc_perm_p(perm.fixed[, nm], T.obs.fixed[nm]))
   p.value.pointwise.death.first <- sapply(seq_along(p.grid), function(k) calc_perm_p(perm.pointwise.death.first[, k], obs$weighted.death.first$WR[k]))
   p.value.pointwise.hosp.first <- sapply(seq_along(p.grid), function(k) calc_perm_p(perm.pointwise.hosp.first[, k], obs$weighted.hosp.first$WR[k]))
   p.value.pointwise.threshold <- sapply(seq_along(t.grid), function(k) calc_perm_p(perm.pointwise.threshold[, k], obs$threshold$WR[k]))
-
+  
   list(
     observed = obs,
     T.obs.max = T.obs.max,
@@ -3424,7 +3424,7 @@ extract.trial.row <- function(scenario.row, sim.index, test.out, logrank.results
   death.first.primary <- obs$max.weighted.primary
   hosp.first.primary <- max_from_curve(obs$weighted.hosp.first, "hosp_first_primary", 0.50, 1.00)
   order.diff <- hosp.first.primary$WR[1] - death.first.primary$WR[1]
-
+  
   w.traditional.row <- get_selected_weighted_row(obs, "death_first", 0.5)
   h.traditional.row <- get_selected_weighted_row(obs, "hospitalization_first", 0.5)
   to.traditional.row <- get_selected_weighted_row(obs, obs$max.traditional.order$order[1], 0.5)
@@ -3433,26 +3433,26 @@ extract.trial.row <- function(scenario.row, sim.index, test.out, logrank.results
   w.full.row <- get_selected_weighted_row(obs, "death_first", obs$max.weighted.full$p[1])
   o.primary.row <- get_selected_weighted_row(obs, obs$max.order.primary$order[1], obs$max.order.primary$p[1])
   o.full.row <- get_selected_weighted_row(obs, obs$max.order.full$order[1], obs$max.order.full$p[1])
-
+  
   data.frame(
     scenario_id = scenario.row$scenario_id,
     scenario_type = get_scenario_field(scenario.row, "scenario_type"),
     description = get_scenario_field(scenario.row, "description"),
     sim = sim.index,
     error.message = error.message,
-
+    
     ordinaryWR = test.out$T.obs.max["ordinaryWR"],
     traditional.tie.count = w.traditional.row$tie.count[1],
     traditional.tie.pr = w.traditional.row$tie.pr[1],
     max.pvalue.ordinaryWR = test.out$p.value.max["ordinaryWR"],
     fixed.pvalue.ordinaryWR = test.out$p.value.fixed["ordinaryWR"],
-
+    
     traditionalWR_hosp_first = test.out$T.obs.max["traditionalWR_hosp_first"],
     traditional.hosp.first.tie.count = h.traditional.row$tie.count[1],
     traditional.hosp.first.tie.pr = h.traditional.row$tie.pr[1],
     max.pvalue.traditionalWR_hosp_first = test.out$p.value.max["traditionalWR_hosp_first"],
     fixed.pvalue.traditionalWR_hosp_first = test.out$p.value.fixed["fixedTraditionalHospFirst"],
-
+    
     traditional.death.first.WR = w.traditional.row$WR[1],
     traditional.hosp.first.WR = h.traditional.row$WR[1],
     traditional.order.diff.hosp.minus.death = h.traditional.row$WR[1] - w.traditional.row$WR[1],
@@ -3463,21 +3463,21 @@ extract.trial.row <- function(scenario.row, sim.index, test.out, logrank.results
     traditional.order.tie.pr = to.traditional.row$tie.pr[1],
     max.pvalue.traditionalOrderWR = test.out$p.value.max["traditionalOrderWR"],
     fixed.pvalue.traditionalOrderWR = test.out$p.value.fixed["fixedTraditionalOrderWR"],
-
+    
     maxWRp_primary = test.out$T.obs.max["maxWRp_primary"],
     selected.p.primary = obs$max.weighted.primary$p[1],
     weighted.primary.tie.count = w.primary.row$tie.count[1],
     weighted.primary.tie.pr = w.primary.row$tie.pr[1],
     max.pvalue.maxWRp_primary = test.out$p.value.max["maxWRp_primary"],
     fixed.pvalue.maxWRp_primary = test.out$p.value.fixed["fixedWRp_primary"],
-
+    
     maxWRp_low = test.out$T.obs.max["maxWRp_low"],
     selected.p.low = obs$max.weighted.low$p[1],
     weighted.low.tie.count = w.low.row$tie.count[1],
     weighted.low.tie.pr = w.low.row$tie.pr[1],
     max.pvalue.maxWRp_low = test.out$p.value.max["maxWRp_low"],
     fixed.pvalue.maxWRp_low = test.out$p.value.fixed["fixedWRp_low"],
-
+    
     maxWRp_full = test.out$T.obs.max["maxWRp_full"],
     selected.p.full = obs$max.weighted.full$p[1],
     weighted.full.tie.count = w.full.row$tie.count[1],
@@ -3485,7 +3485,7 @@ extract.trial.row <- function(scenario.row, sim.index, test.out, logrank.results
     selected.full.is.low.p = as.integer(obs$max.weighted.full$p[1] < 0.5),
     max.pvalue.maxWRp_full = test.out$p.value.max["maxWRp_full"],
     fixed.pvalue.maxWRp_full = test.out$p.value.fixed["fixedWRp_full"],
-
+    
     death.first.primary.WR = death.first.primary$WR[1],
     hosp.first.primary.WR = hosp.first.primary$WR[1],
     order.diff.hosp.minus.death = order.diff,
@@ -3497,7 +3497,7 @@ extract.trial.row <- function(scenario.row, sim.index, test.out, logrank.results
     order.primary.tie.pr = o.primary.row$tie.pr[1],
     max.pvalue.maxOrderWR_primary = test.out$p.value.max["maxOrderWR_primary"],
     fixed.pvalue.maxOrderWR_primary = test.out$p.value.fixed["fixedOrder_primary"],
-
+    
     maxOrderWR_full = test.out$T.obs.max["maxOrderWR_full"],
     selected.order.full = obs$max.order.full$order[1],
     selected.order.p.full = obs$max.order.full$p[1],
@@ -3506,7 +3506,7 @@ extract.trial.row <- function(scenario.row, sim.index, test.out, logrank.results
     selected.order.full.is.low.p = as.integer(obs$max.order.full$p[1] < 0.5),
     max.pvalue.maxOrderWR_full = test.out$p.value.max["maxOrderWR_full"],
     fixed.pvalue.maxOrderWR_full = test.out$p.value.fixed["fixedOrder_full"],
-
+    
     maxWRt = test.out$T.obs.max["maxWRt"],
     selected.t.years = obs$max.threshold$t[1],
     selected.t.months = obs$max.threshold$t.months[1],
@@ -3514,7 +3514,7 @@ extract.trial.row <- function(scenario.row, sim.index, test.out, logrank.results
     threshold.tie.pr = obs$max.threshold$pr.tie[1],
     max.pvalue.maxWRt = test.out$p.value.max["maxWRt"],
     fixed.pvalue.maxWRt = test.out$p.value.fixed["fixedWRt"],
-
+    
     true.hierarchical.tie.count = obs$counts$true.tie.pairs,
     true.hierarchical.tie.pr = obs$counts$true.tie.pr,
     total.pairs = obs$counts$total.pairs,
@@ -3645,6 +3645,348 @@ plot.global.fixed.pvalues.clean <- function(method.table, outdir) {
 # Use the updated global comparison functions in the original runner.
 plot.global.permutation.pvalues.clean <- plot.global.mean.pvalues.clean
 plot.global.max.fixed.pvalues.clean <- plot.global.fixed.pvalues.clean
+
+
+
+# The  scenarios and all core simulation / WR / permutation
+
+build.scenario.grid.original_13 <- build.scenario.grid
+
+build.scenario.grid <- function() {
+  base.grid <- build.scenario.grid.original_13()
+  base.grid$scenario_index <- seq_len(nrow(base.grid))
+  
+  base.mort <- base.grid$mort.rate.ctrl[1]
+  
+  added.grid <- data.frame(
+    scenario_index = seq(nrow(base.grid) + 1, nrow(base.grid) + 4),
+    scenario_id = c(
+      "S14_strong_hosp_benefit_only",
+      "S15_weak_death_benefit_strong_hosp_benefit",
+      "S16_death_benefit_hosp_noise",
+      "S17_very_strong_hosp_benefit_only"
+    ),
+    scenario_label = c(
+      "S14 Strong hosp only",
+      "S15 Weak death + strong hosp",
+      "S16 Death benefit + hosp noise",
+      "S17 Very strong hosp only"
+    ),
+    scenario_type = c(
+      "targeted non-terminal benefit",
+      "targeted weak death plus strong non-terminal benefit",
+      "targeted weighted-WR advantage",
+      "targeted non-terminal benefit"
+    ),
+    description = c(
+      "Treatment has no death effect but a strong hospitalization benefit; intended to favor order-change and maximum-order WR.",
+      "Treatment has weak death benefit and strong hospitalization benefit; intended to favor weighted and order-adaptive WR.",
+      "Treatment has strong death benefit but mildly worse/noisy hospitalization; intended to favor weighted death-first WR over fixed p = 0.50 WR.",
+      "Treatment has no death effect but a very strong hospitalization benefit; a stress test for hospitalization-first and maximum-order WR."
+    ),
+    N0 = rep(50, 4),
+    N1 = rep(50, 4),
+    mort.rate.ctrl = rep(base.mort, 4),
+    HR = c(
+      1.00,  # S14: death neutral, strong hospitalization benefit
+      0.90,  # S15: weak death benefit, strong hospitalization benefit
+      0.60,  # S16: strong death benefit, hospitalization noise/mild harm
+      1.00   # S17: death neutral, very strong hospitalization benefit
+    ),
+    evt.rate.shape.param = rep(5, 4),
+    evt.rate.scale.param.ctr = rep(1.0, 4),
+    evt.rate.scale.param.trt = c(
+      0.25,  # S14: strong reduction in hospitalization burden
+      0.25,  # S15: strong reduction in hospitalization burden
+      1.25,  # S16: mild harm/noise in hospitalization burden
+      0.20   # S17: very strong reduction in hospitalization burden
+    ),
+    max.FU = rep(1, 4),
+    censor.rate = rep(0, 4),
+    stringsAsFactors = FALSE
+  )
+  
+  out <- rbind(base.grid, added.grid)
+  rownames(out) <- NULL
+  out
+}
+
+# Short labels for plots.  The scenario_label column in GLOBAL_scenario_config.csv
+# remains more descriptive; these are only for figure axes.
+scenario.display.label <- function(x) {
+  map <- c(
+    S01_equivalence_equal_arms = "S01 Equal",
+    S02_similarity_small_benefit_both = "S02 Sim+",
+    S03_similarity_small_harm_both = "S03 Sim-",
+    S04_superiority_moderate_better_both = "S04 SupM",
+    S05_superiority_strong_better_both = "S05 SupS",
+    S06_inferiority_moderate_worse_both = "S06 InfM",
+    S07_inferiority_strong_worse_both = "S07 InfS",
+    S08_death_benefit_only = "S08 D+",
+    S09_hosp_benefit_only = "S09 H+",
+    S10_death_benefit_hosp_harm = "S10 D+/H-",
+    S11_death_harm_hosp_benefit = "S11 D-/H+",
+    S12_high_random_censoring_superiority = "S12 Cens",
+    S13_low_censoring_long_followup_superiority = "S13 Long",
+    S14_strong_hosp_benefit_only = "S14 H-only",
+    S15_weak_death_benefit_strong_hosp_benefit = "S15 Dweak/H+",
+    S16_death_benefit_hosp_noise = "S16 D+/Hnoise",
+    S17_very_strong_hosp_benefit_only = "S17 H++ only"
+  )
+  out <- as.character(x)
+  hit <- out %in% names(map)
+  out[hit] <- unname(map[out[hit]])
+  out[!hit] <- gsub("_", " ", out[!hit])
+  out
+}
+
+# Short method labels for plots.  Long labels are still used in CSV tables.
+method.display.label <- function(method) {
+  map <- c(
+    ordinaryWR = "Trad\nD-first",
+    traditionalWR_hosp_first = "Trad\nH-first",
+    traditionalOrderWR = "Order\nfixed p",
+    maxWRp_primary = "Wgt\nD p>=.5",
+    maxWRp_low = "Wgt\nD p<.5",
+    maxWRp_full = "Wgt\nD full",
+    maxOrderWR_primary = "Max\norder",
+    maxOrderWR_full = "Max\nord full",
+    maxWRt = "Thresh\nWR(t)",
+    logrank_death = "LR\ndeath",
+    logrank_composite = "LR\ncomp",
+    fixedTraditionalHospFirst = "Fix\nH-first",
+    fixedTraditionalOrderWR = "Fix\norder",
+    fixedWRp_primary = "Fix wgt\np>=.5",
+    fixedWRp_low = "Fix wgt\np<.5",
+    fixedWRp_full = "Fix wgt\nfull",
+    fixedOrderWR_primary = "Fix max\norder",
+    fixedOrderWR_full = "Fix ord\nfull",
+    fixedWRt = "Fix\nthresh"
+  )
+  out <- as.character(method)
+  hit <- out %in% names(map)
+  out[hit] <- unname(map[out[hit]])
+  out[!hit] <- gsub("_", " ", out[!hit])
+  out
+}
+
+# Horizontal p-value plots: use short method labels and a wider left margin.
+plot.pvalue.bar <- function(tab, outdir, filename, title, p.col = "permutation_p_value",
+                            method.order = NULL, show.alpha = TRUE) {
+  if (is.null(tab) || nrow(tab) == 0 || !(p.col %in% names(tab))) return(invisible(NULL))
+  d <- tab
+  if (!is.null(method.order)) d <- d[d$method %in% method.order, , drop = FALSE]
+  d <- d[!is.na(d[[p.col]]), , drop = FALSE]
+  if (nrow(d) == 0) return(invisible(NULL))
+  if (!is.null(method.order)) {
+    d$method <- factor(d$method, levels = method.order)
+    d <- d[order(d$method), , drop = FALSE]
+  }
+  d <- d[order(d[[p.col]], decreasing = TRUE), , drop = FALSE]
+  
+  save_png(outdir, filename, width = 2400, height = 1350)
+  old.par <- par(no.readonly = TRUE)
+  par(mar = c(5.2, 10.5, 3.2, 1.2))
+  bp <- barplot(d[[p.col]], horiz = TRUE,
+                names.arg = gsub("\\n", " ", method.display.label(as.character(d$method))),
+                xlim = c(0, 1), las = 1,
+                xlab = "P-value",
+                main = title,
+                cex.names = 0.78)
+  if (show.alpha) abline(v = ALPHA, lty = 2, lwd = 2)
+  text(x = pmin(d[[p.col]] + 0.035, 0.96), y = bp,
+       labels = fmt_p(d[[p.col]]), cex = 0.76)
+  if (show.alpha) legend("bottomright", legend = paste0("alpha = ", ALPHA), bty = "n", cex = 0.78)
+  par(old.par)
+  dev.off()
+}
+
+# Scenario-level plots with more room and short labels.
+plot.scenario.method.comparison <- function(method.table, outdir, prefix) {
+  if (nrow(method.table) == 0) return(invisible(NULL))
+  if (!dir.exists(outdir)) dir.create(outdir, recursive = TRUE)
+  title.label <- scenario.display.label(prefix)
+  
+  pvalue.methods <- c(
+    "ordinaryWR", "traditionalWR_hosp_first", "traditionalOrderWR",
+    "maxWRp_primary", "maxWRp_low", "maxWRp_full",
+    "maxOrderWR_primary", "maxOrderWR_full", "maxWRt",
+    "logrank_death", "logrank_composite"
+  )
+  pvtab <- method.table[method.table$method %in% pvalue.methods, , drop = FALSE]
+  if (nrow(pvtab) > 0) {
+    pvtab$method <- factor(pvtab$method, levels = pvalue.methods)
+    pvtab <- pvtab[order(pvtab$method), , drop = FALSE]
+    save_png(outdir, paste0(prefix, "_permutation_pvalue_comparison.png"), width = 2800, height = 1300)
+    old.par <- par(no.readonly = TRUE)
+    par(mar = c(8.0, 5.2, 3.2, 1.2))
+    bp <- barplot(pvtab$mean_permutation_p_value,
+                  names.arg = method.display.label(pvtab$method),
+                  ylim = c(0, 1), las = 1,
+                  ylab = "Mean permutation / log-rank p-value",
+                  main = paste0(title.label, ": pathway p-value comparison"),
+                  cex.names = 0.72)
+    abline(h = ALPHA, lty = 2, lwd = 2)
+    text(bp, pmin(pvtab$mean_permutation_p_value + 0.04, 0.98),
+         labels = sprintf("%.3f", pvtab$mean_permutation_p_value), cex = 0.62)
+    par(old.par)
+    dev.off()
+  }
+  
+  fixed.methods <- c(
+    "ordinaryWR", "traditionalWR_hosp_first", "traditionalOrderWR",
+    "maxWRp_primary", "maxWRp_low", "maxWRp_full",
+    "maxOrderWR_primary", "maxOrderWR_full", "maxWRt"
+  )
+  ftab <- method.table[method.table$method %in% fixed.methods, , drop = FALSE]
+  if (nrow(ftab) > 0) {
+    ftab$method <- factor(ftab$method, levels = fixed.methods)
+    ftab <- ftab[order(ftab$method), , drop = FALSE]
+    mat <- rbind(
+      "Max-stat" = ftab$mean_permutation_p_value,
+      "Fixed" = ftab$mean_selected_parameter_p_value
+    )
+    colnames(mat) <- method.display.label(ftab$method)
+    save_png(outdir, paste0(prefix, "_max_vs_fixed_selected_pvalues.png"), width = 2800, height = 1300)
+    old.par <- par(no.readonly = TRUE)
+    par(mar = c(8.0, 5.2, 3.2, 1.2))
+    bp <- barplot(mat, beside = TRUE, ylim = c(0, 1), las = 1,
+                  ylab = "Mean p-value",
+                  main = paste0(title.label, ": max-statistic vs fixed-selected p-values"),
+                  legend.text = TRUE,
+                  args.legend = list(x = "topright", bty = "n", cex = 0.75),
+                  cex.names = 0.72)
+    abline(h = ALPHA, lty = 2, lwd = 2)
+    text(bp, pmin(mat + 0.04, 0.98), labels = sprintf("%.3f", mat), cex = 0.55)
+    par(old.par)
+    dev.off()
+  }
+  
+  powtab <- pvtab
+  if (nrow(powtab) > 0) {
+    save_png(outdir, paste0(prefix, "_power_comparison.png"), width = 2800, height = 1300)
+    old.par <- par(no.readonly = TRUE)
+    par(mar = c(8.0, 5.2, 3.2, 1.2))
+    bp <- barplot(powtab$power_permutation_p_value,
+                  names.arg = method.display.label(powtab$method),
+                  ylim = c(0, 1), las = 1,
+                  ylab = paste0("Rejection proportion at alpha = ", ALPHA),
+                  main = paste0(title.label, ": power / rejection proportion"),
+                  cex.names = 0.72)
+    abline(h = ALPHA, lty = 2, lwd = 2)
+    text(bp, pmin(powtab$power_permutation_p_value + 0.04, 0.98),
+         labels = sprintf("%.2f", powtab$power_permutation_p_value), cex = 0.62)
+    par(old.par)
+    dev.off()
+  }
+}
+
+plot.global.power.clean <- function(power.table, outdir) {
+  if (nrow(power.table) == 0) return(invisible(NULL))
+  key.methods <- c(
+    "ordinaryWR", "traditionalWR_hosp_first", "traditionalOrderWR",
+    "maxWRp_primary", "maxOrderWR_primary", "maxWRt",
+    "logrank_death", "logrank_composite"
+  )
+  tab <- power.table[power.table$method %in% key.methods, , drop = FALSE]
+  if (nrow(tab) == 0) return(invisible(NULL))
+  scenarios <- unique(tab$scenario_id)
+  mat <- matrix(NA_real_, nrow = length(key.methods), ncol = length(scenarios),
+                dimnames = list(method.display.label(key.methods), scenario.display.label(scenarios)))
+  for (i in seq_len(nrow(tab))) {
+    mat[method.display.label(tab$method[i]), scenario.display.label(tab$scenario_id[i])] <- tab$rejection.proportion[i]
+  }
+  save_png(outdir, "GLOBAL_power_comparison_key_methods.png", width = 5200, height = 2100)
+  old.par <- par(no.readonly = TRUE)
+  par(mar = c(8.0, 5.2, 3.2, 1.2))
+  barplot(mat, beside = TRUE, ylim = c(0, 1), las = 2,
+          ylab = paste0("Rejection proportion at alpha = ", ALPHA),
+          main = "Power / rejection proportion across scenarios",
+          legend.text = TRUE,
+          args.legend = list(x = "topright", bty = "n", cex = 0.56),
+          cex.names = 0.66)
+  abline(h = ALPHA, lty = 2, lwd = 2)
+  par(old.par)
+  dev.off()
+}
+
+plot.global.mean.pvalues.clean <- function(method.table, outdir) {
+  if (nrow(method.table) == 0) return(invisible(NULL))
+  key.methods <- c(
+    "ordinaryWR", "traditionalWR_hosp_first", "traditionalOrderWR",
+    "maxWRp_primary", "maxOrderWR_primary", "maxWRt",
+    "logrank_death", "logrank_composite"
+  )
+  tab <- method.table[method.table$method %in% key.methods, , drop = FALSE]
+  if (nrow(tab) == 0) return(invisible(NULL))
+  scenarios <- unique(tab$scenario_id)
+  mat <- matrix(NA_real_, nrow = length(key.methods), ncol = length(scenarios),
+                dimnames = list(method.display.label(key.methods), scenario.display.label(scenarios)))
+  for (i in seq_len(nrow(tab))) {
+    mat[method.display.label(tab$method[i]), scenario.display.label(tab$scenario_id[i])] <- tab$mean_permutation_p_value[i]
+  }
+  save_png(outdir, "GLOBAL_permutation_pvalue_comparison.png", width = 5200, height = 2100)
+  old.par <- par(no.readonly = TRUE)
+  par(mar = c(8.0, 5.2, 3.2, 1.2))
+  barplot(mat, beside = TRUE, ylim = c(0, 1), las = 2,
+          ylab = "Mean permutation p-value",
+          main = "Mean permutation p-value across scenarios",
+          legend.text = TRUE,
+          args.legend = list(x = "topright", bty = "n", cex = 0.56),
+          cex.names = 0.66)
+  abline(h = ALPHA, lty = 2, lwd = 2)
+  par(old.par)
+  dev.off()
+}
+
+plot.global.fixed.pvalues.clean <- function(method.table, outdir) {
+  if (nrow(method.table) == 0) return(invisible(NULL))
+  key.methods <- c(
+    "ordinaryWR", "traditionalWR_hosp_first", "traditionalOrderWR",
+    "maxWRp_primary", "maxOrderWR_primary", "maxWRt"
+  )
+  tab <- method.table[method.table$method %in% key.methods, , drop = FALSE]
+  if (nrow(tab) == 0) return(invisible(NULL))
+  scenarios <- unique(tab$scenario_id)
+  mat <- matrix(NA_real_, nrow = length(key.methods), ncol = length(scenarios),
+                dimnames = list(method.display.label(key.methods), scenario.display.label(scenarios)))
+  for (i in seq_len(nrow(tab))) {
+    mat[method.display.label(tab$method[i]), scenario.display.label(tab$scenario_id[i])] <- tab$mean_selected_parameter_p_value[i]
+  }
+  save_png(outdir, "GLOBAL_fixed_selected_pvalue_comparison.png", width = 5000, height = 2000)
+  old.par <- par(no.readonly = TRUE)
+  par(mar = c(8.0, 5.2, 3.2, 1.2))
+  barplot(mat, beside = TRUE, ylim = c(0, 1), las = 2,
+          ylab = "Mean fixed-selected p-value",
+          main = "Mean fixed-selected p-value across scenarios",
+          legend.text = TRUE,
+          args.legend = list(x = "topright", bty = "n", cex = 0.62),
+          cex.names = 0.68)
+  abline(h = ALPHA, lty = 2, lwd = 2)
+  par(old.par)
+  dev.off()
+}
+
+plot.global.permutation.pvalues.clean <- plot.global.mean.pvalues.clean
+plot.global.max.fixed.pvalues.clean <- plot.global.fixed.pvalues.clean
+
+plot.global.low.p.clean <- function(avg.table, outdir) {
+  if (nrow(avg.table) == 0 || !("prop.full.selected.p.below.0.5" %in% names(avg.table))) return(invisible(NULL))
+  labs <- scenario.display.label(avg.table$scenario_id)
+  save_png(outdir, "GLOBAL_low_p_selection_frequency.png", width = 4400, height = 1700)
+  old.par <- par(no.readonly = TRUE)
+  par(mar = c(8.0, 5.2, 3.2, 1.2))
+  bp <- barplot(avg.table$prop.full.selected.p.below.0.5,
+                names.arg = labs,
+                ylim = c(0, 1), las = 2,
+                ylab = "Proportion of simulations",
+                main = "How often full-grid maximum selects p < 0.5",
+                cex.names = 0.68)
+  text(bp, pmin(avg.table$prop.full.selected.p.below.0.5 + 0.04, 0.98),
+       labels = sprintf("%.2f", avg.table$prop.full.selected.p.below.0.5), cex = 0.66)
+  par(old.par)
+  dev.off()
+}
 
 #Run block
 out <- run.all.scenarios(
