@@ -19,3 +19,14 @@ Project reference
   year={2000},
   publisher={Wiley Online Library}
 }
+
+@article{o2009efficacy,
+  title={Efficacy and safety of exercise training in patients with chronic heart failure: HF-ACTION randomized controlled trial},
+  author={O’Connor, Christopher M and Whellan, David J and Lee, Kerry L and Keteyian, Steven J and Cooper, Lawton S and Ellis, Stephen J and Leifer, Eric S and Kraus, William E and Kitzman, Dalane W and Blumenthal, James A and others},
+  journal={Jama},
+  volume={301},
+  number={14},
+  pages={1439--1450},
+  year={2009},
+  publisher={American Medical Association}
+}
