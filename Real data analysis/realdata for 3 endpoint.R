@@ -4,10 +4,10 @@ options(stringsAsFactors = FALSE)
 
 
 #Input and output paths
-DATA_PATH <- "C:/Users/Lenovo/Desktop/your_real_data.csv"
+DATA_PATH <- ""
 DATA_OBJECT_NAME <- NULL
 
-OUTPUT_DIR <- "C:/Users/Lenovo/Desktop/realdata_3endpoint_WR_WO_full_adaptive"
+OUTPUT_DIR <- ""
 
 
 #Data format
@@ -63,12 +63,11 @@ EVENT_ENDPOINTS <- list(
 
 
 #Threshold configuration
-#Threshold is applied to this endpoint number, not rank.
-#For example, THRESHOLD_ENDPOINT <- 1 means threshold follows outcome 1 even if order is (2,1,3).
-THRESHOLD_ENDPOINT <- 1
+THRESHOLD_TIME_ENDPOINT <- NULL
 
 #Set THRESHOLD_GRID manually if desired, e.g. c(0, 3, 6, 12, 18, 24).
-#Units must match the data time unit. If NULL, the script builds a compact data-driven grid.
+#Units must match the data time unit. If NULL, the script builds a compact data-driven grid
+#from the selected time-to-event endpoint only.
 THRESHOLD_GRID <- NULL
 TIME_UNIT_LABEL <- "months"
 MAX_AUTO_THRESHOLDS <- 10L
@@ -175,17 +174,17 @@ make_p_string <- function(w) {
 read_any_data <- function(path, object_name = NULL) {
   if (!file.exists(path)) stop("DATA_PATH not found: ", path)
   ext <- tolower(tools::file_ext(path))
-
+  
   if (ext == "csv") {
     return(as.data.frame(data.table::fread(path, data.table = FALSE)))
   }
-
+  
   if (ext == "rds") {
     obj <- readRDS(path)
     if (!is.data.frame(obj)) stop("RDS file is not a data frame.")
     return(as.data.frame(obj))
   }
-
+  
   if (ext %in% c("rdata", "rda")) {
     env <- new.env()
     nm <- load(path, envir = env)
@@ -203,30 +202,30 @@ read_any_data <- function(path, object_name = NULL) {
     }
     return(as.data.frame(get(df_names[1], envir = env)))
   }
-
+  
   stop("Unsupported file extension: ", ext)
 }
 
 prepare_wide_data <- function(raw, id_col, arm_col, endpoints) {
   if (!id_col %in% names(raw)) stop("ID_COL not found: ", id_col)
   if (!arm_col %in% names(raw)) stop("ARM_COL not found: ", arm_col)
-
+  
   d <- data.frame(
     id = raw[[id_col]],
     arm = safe_num(raw[[arm_col]]),
     stringsAsFactors = FALSE
   )
-
+  
   if (!all(d$arm %in% c(0, 1))) {
     stop("ARM_COL must be coded as 1=treatment A and 0=control B.")
   }
-
+  
   endpoint_specs <- list()
   for (j in seq_along(endpoints)) {
     ep <- endpoints[[j]]
     ep_type <- ep$type
     ep_name <- if (!is.null(ep$name)) ep$name else paste0("Outcome ", j)
-
+    
     if (ep_type == "time") {
       if (!ep$time_col %in% names(raw)) stop("Missing time column for endpoint ", j, ": ", ep$time_col)
       if (!ep$event_col %in% names(raw)) stop("Missing event column for endpoint ", j, ": ", ep$event_col)
@@ -256,12 +255,12 @@ prepare_wide_data <- function(raw, id_col, arm_col, endpoints) {
       stop("Unsupported endpoint type for endpoint ", j, ": ", ep_type)
     }
   }
-
+  
   d <- d[!is.na(d$id) & !is.na(d$arm), , drop = FALSE]
   if (any(duplicated(d$id))) {
     stop("Wide data must have one row per subject. Duplicated IDs found.")
   }
-
+  
   list(data = d, endpoints = endpoint_specs)
 }
 
@@ -269,32 +268,32 @@ prepare_event_long_data <- function(raw, id_col, arm_col, time_col, status_col, 
   required <- c(id_col, arm_col, time_col, status_col)
   missing <- setdiff(required, names(raw))
   if (length(missing) > 0) stop("Missing event-long columns: ", paste(missing, collapse = ", "))
-
+  
   dt <- as.data.table(raw)
   dt[, .id_tmp := get(id_col)]
   dt[, .arm_tmp := safe_num(get(arm_col))]
   dt[, .time_tmp := safe_num(get(time_col))]
   dt[, .status_tmp := safe_num(get(status_col))]
-
+  
   subj <- dt[, .(
     id = first_non_missing(.id_tmp),
     arm = first_non_missing(.arm_tmp),
     followup_time = max(.time_tmp, na.rm = TRUE)
   ), by = .id_tmp]
   subj[, .id_tmp := NULL]
-
+  
   if (!all(subj$arm %in% c(0, 1))) {
     stop("EVENT_ARM_COL must be coded as 1=treatment A and 0=control B.")
   }
-
+  
   endpoint_specs <- list()
-
+  
   for (j in seq_along(endpoints)) {
     ep <- endpoints[[j]]
     ep_type <- ep$type
     ep_name <- if (!is.null(ep$name)) ep$name else paste0("Outcome ", j)
     code <- ep$status_code
-
+    
     if (ep_type == "time") {
       tmp <- dt[.status_tmp == code, .(event_time = min(.time_tmp, na.rm = TRUE)), by = .id_tmp]
       names(tmp)[names(tmp) == ".id_tmp"] <- "id"
@@ -318,7 +317,7 @@ prepare_event_long_data <- function(raw, id_col, arm_col, time_col, status_col, 
       stop("For event_long data, endpoint type must be 'time' or 'count'.")
     }
   }
-
+  
   subj <- as.data.frame(subj)
   list(data = subj, endpoints = endpoint_specs)
 }
@@ -338,6 +337,43 @@ endpoint_specs <- prepared$endpoints
 M_ENDPOINTS <- length(endpoint_specs)
 if (M_ENDPOINTS < 2 || M_ENDPOINTS > 3) stop("This script supports 2 or 3 endpoints.")
 
+resolve_threshold_endpoint <- function(endpoint_specs, requested_endpoint = NULL) {
+  time_endpoint_ids <- which(sapply(endpoint_specs, function(ep) identical(tolower(ep$type), "time")))
+  
+  if (length(time_endpoint_ids) == 0) {
+    warning("No time-to-event endpoint was found. Threshold methods will use threshold 0 only.")
+    return(NA_integer_)
+  }
+  
+  if (!is.null(requested_endpoint) && !is.na(requested_endpoint)) {
+    requested_endpoint <- as.integer(requested_endpoint)
+    if (requested_endpoint < 1 || requested_endpoint > length(endpoint_specs)) {
+      stop("THRESHOLD_TIME_ENDPOINT is outside the endpoint range.")
+    }
+    if (!identical(tolower(endpoint_specs[[requested_endpoint]]$type), "time")) {
+      stop(
+        "THRESHOLD_TIME_ENDPOINT must point to a time-to-event endpoint. ",
+        "Endpoint ", requested_endpoint, " has type '", endpoint_specs[[requested_endpoint]]$type, "'. ",
+        "Thresholds are not applied to count/binary/continuous endpoints."
+      )
+    }
+    return(requested_endpoint)
+  }
+  
+  if (length(time_endpoint_ids) > 1) {
+    warning(
+      "Multiple time-to-event endpoints were found. Using endpoint ", time_endpoint_ids[1],
+      " by default. Set THRESHOLD_TIME_ENDPOINT to choose a different time endpoint."
+    )
+  }
+  
+  time_endpoint_ids[1]
+}
+
+THRESHOLD_ENDPOINT <- resolve_threshold_endpoint(endpoint_specs, THRESHOLD_TIME_ENDPOINT)
+THRESHOLD_ENDPOINT_NAME <- if (is.na(THRESHOLD_ENDPOINT)) NA_character_ else endpoint_specs[[THRESHOLD_ENDPOINT]]$name
+THRESHOLD_ENDPOINT_TYPE <- if (is.na(THRESHOLD_ENDPOINT)) NA_character_ else endpoint_specs[[THRESHOLD_ENDPOINT]]$type
+
 cat("Prepared subject-level data:\n")
 cat("  n subjects:", nrow(subject_data), "\n")
 cat("  treatment A:", sum(subject_data$arm == 1), "\n")
@@ -350,38 +386,39 @@ compare_endpoint_pairs <- function(data, idx_A, idx_B, endpoint_spec, threshold 
   n <- length(idx_A)
   out <- integer(n)  # +1 treatment wins, -1 control wins, 0 tie/unresolved
   threshold <- ifelse(is.na(threshold), 0, threshold)
-
+  
   if (endpoint_spec$type == "time") {
     ta <- safe_num(data[[endpoint_spec$time_col]][idx_A])
     tb <- safe_num(data[[endpoint_spec$time_col]][idx_B])
     ea <- as.integer(data[[endpoint_spec$event_col]][idx_A] == 1)
     eb <- as.integer(data[[endpoint_spec$event_col]][idx_B] == 1)
-
+    
     both_event <- ea == 1 & eb == 1 & !is.na(ta) & !is.na(tb)
     out[both_event & (ta - tb > threshold)] <- 1L
     out[both_event & (tb - ta > threshold)] <- -1L
-
+    
     ## A censored after B has event: A has known longer event-free time.
     a_cens_b_event <- ea == 0 & eb == 1 & !is.na(ta) & !is.na(tb)
     out[a_cens_b_event & (ta - tb > threshold)] <- 1L
-
+    
     ## B censored after A has event: B has known longer event-free time.
     a_event_b_cens <- ea == 1 & eb == 0 & !is.na(ta) & !is.na(tb)
     out[a_event_b_cens & (tb - ta > threshold)] <- -1L
-
+    
     return(out)
   }
-
+  
   if (endpoint_spec$type == "count") {
     ca <- safe_num(data[[endpoint_spec$count_col]][idx_A])
     cb <- safe_num(data[[endpoint_spec$count_col]][idx_B])
     ok <- !is.na(ca) & !is.na(cb)
-    ## adverse count: lower is better; threshold requires absolute difference > threshold
+    ## adverse count: lower is better. In this script, adaptive thresholds are not
+    ## assigned to count endpoints, so this branch normally receives threshold = 0.
     out[ok & (cb - ca > threshold)] <- 1L
     out[ok & (ca - cb > threshold)] <- -1L
     return(out)
   }
-
+  
   if (endpoint_spec$type == "binary") {
     va <- safe_num(data[[endpoint_spec$value_col]][idx_A])
     vb <- safe_num(data[[endpoint_spec$value_col]][idx_B])
@@ -391,7 +428,7 @@ compare_endpoint_pairs <- function(data, idx_A, idx_B, endpoint_spec, threshold 
     out[ok & (va - vb > threshold)] <- -1L
     return(out)
   }
-
+  
   if (endpoint_spec$type == "continuous") {
     va <- safe_num(data[[endpoint_spec$value_col]][idx_A])
     vb <- safe_num(data[[endpoint_spec$value_col]][idx_B])
@@ -406,7 +443,7 @@ compare_endpoint_pairs <- function(data, idx_A, idx_B, endpoint_spec, threshold 
     }
     return(out)
   }
-
+  
   stop("Unsupported endpoint type: ", endpoint_spec$type)
 }
 
@@ -428,15 +465,19 @@ counts_for_candidate <- function(data, arm_vec, order_vec, weights, threshold_va
   idx_A <- pairs$A
   idx_B <- pairs$B
   n_pairs <- pairs$n_pairs
-
+  
   wins_by_rank <- rep(0, M_ENDPOINTS)
   losses_by_rank <- rep(0, M_ENDPOINTS)
   unresolved <- rep(TRUE, n_pairs)
-
+  
   for (r in seq_along(order_vec)) {
     endpoint_id <- order_vec[r]
     ep <- endpoint_specs[[endpoint_id]]
-    thr <- if (endpoint_id == threshold_endpoint) threshold_value else 0
+    ## The threshold follows the time-to-event endpoint number, not the rank.
+    ## It is never applied to count/binary/continuous endpoints.
+    thr <- if (!is.na(threshold_endpoint) &&
+               endpoint_id == threshold_endpoint &&
+               identical(tolower(ep$type), "time")) threshold_value else 0
     cmp <- compare_endpoint_pairs(data, idx_A, idx_B, ep, threshold = thr)
     unresolved_idx <- which(unresolved)
     if (length(unresolved_idx) == 0) break
@@ -448,22 +489,22 @@ counts_for_candidate <- function(data, arm_vec, order_vec, weights, threshold_va
       unresolved[unresolved_idx[resolved_local]] <- FALSE
     }
   }
-
+  
   tie_count <- sum(unresolved)
   weights <- as.numeric(weights)
   if (length(weights) < M_ENDPOINTS) weights <- c(weights, rep(0, M_ENDPOINTS - length(weights)))
   weights <- weights[seq_len(M_ENDPOINTS)]
-
+  
   weighted_win <- sum(weights * wins_by_rank)
   weighted_loss <- sum(weights * losses_by_rank)
-
+  
   if (measure == "WR") {
     statistic <- ratio_safe(weighted_win, weighted_loss)
   } else {
     statistic <- ratio_safe(weighted_win + 0.5 * tie_count,
                             weighted_loss + 0.5 * tie_count)
   }
-
+  
   out <- list(
     statistic = statistic,
     abslog_statistic = abslog_safe(statistic),
@@ -480,42 +521,37 @@ counts_for_candidate <- function(data, arm_vec, order_vec, weights, threshold_va
 
 #threshold and weight grids
 auto_threshold_grid <- function(data, endpoint_spec, max_thresholds = 10L) {
+  ## Thresholds are defined only for time-to-event endpoints.
+  ## Count, binary, and continuous endpoints are not thresholded.
+  if (is.null(endpoint_spec) || !identical(tolower(endpoint_spec$type), "time")) {
+    return(0)
+  }
+  
   vals <- c(0)
-
-  if (endpoint_spec$type == "time") {
-    t <- safe_num(data[[endpoint_spec$time_col]])
-    e <- as.integer(data[[endpoint_spec$event_col]] == 1)
-    t_event <- t[e == 1 & !is.na(t)]
-    t_all <- t[!is.na(t)]
-    max_t <- max(t_all, na.rm = TRUE)
-
-    clinical <- c(1, 3, 6, 12, 18, 24, 36, 48, 60)
-    clinical <- clinical[clinical > 0 & clinical < max_t]
-
-    if (length(t_event) >= 2) {
-      if (length(t_event) > 800) t_event <- sample(t_event, 800)
-      diffs <- abs(as.vector(stats::dist(t_event)))
-      diffs <- diffs[is.finite(diffs) & diffs > 0]
-      qs <- as.numeric(stats::quantile(diffs, probs = c(0.10, 0.25, 0.50, 0.75, 0.90), na.rm = TRUE))
-      vals <- c(vals, clinical, qs)
-    } else {
-      vals <- c(vals, clinical)
-    }
-  } else if (endpoint_spec$type %in% c("count", "binary")) {
-    if (endpoint_spec$type == "count") x <- safe_num(data[[endpoint_spec$count_col]]) else x <- safe_num(data[[endpoint_spec$value_col]])
-    x <- x[!is.na(x)]
-    max_diff <- max(x, na.rm = TRUE) - min(x, na.rm = TRUE)
-    vals <- c(0, seq(1, max(1, floor(max_diff)), by = 1))
-  } else if (endpoint_spec$type == "continuous") {
-    x <- safe_num(data[[endpoint_spec$value_col]])
-    x <- x[!is.na(x)]
-    if (length(x) > 800) x <- sample(x, 800)
-    diffs <- abs(as.vector(stats::dist(x)))
+  t <- safe_num(data[[endpoint_spec$time_col]])
+  e <- as.integer(data[[endpoint_spec$event_col]] == 1)
+  t_event <- t[e == 1 & !is.na(t)]
+  t_all <- t[!is.na(t)]
+  
+  if (length(t_all) == 0 || all(!is.finite(t_all))) {
+    return(0)
+  }
+  
+  max_t <- max(t_all, na.rm = TRUE)
+  
+  clinical <- c(1, 3, 6, 12, 18, 24, 36, 48, 60)
+  clinical <- clinical[clinical > 0 & clinical < max_t]
+  
+  if (length(t_event) >= 2) {
+    if (length(t_event) > 800) t_event <- sample(t_event, 800)
+    diffs <- abs(as.vector(stats::dist(t_event)))
     diffs <- diffs[is.finite(diffs) & diffs > 0]
     qs <- as.numeric(stats::quantile(diffs, probs = c(0.10, 0.25, 0.50, 0.75, 0.90), na.rm = TRUE))
-    vals <- c(vals, qs)
+    vals <- c(vals, clinical, qs)
+  } else {
+    vals <- c(vals, clinical)
   }
-
+  
   vals <- sort(unique(round(vals[is.finite(vals) & vals >= 0], 4)))
   if (length(vals) > max_thresholds) {
     keep_idx <- unique(round(seq(1, length(vals), length.out = max_thresholds)))
@@ -524,6 +560,7 @@ auto_threshold_grid <- function(data, endpoint_spec, max_thresholds = 10L) {
   }
   vals
 }
+
 
 make_weight_grid <- function(m, mode = "vertices", step = 0.05, constraint = "ordered") {
   if (m == 2) {
@@ -566,24 +603,28 @@ make_weight_grid <- function(m, mode = "vertices", step = 0.05, constraint = "or
   } else {
     stop("Only 2 or 3 endpoints are supported.")
   }
-
+  
   w <- unique(round(w, 8))
   colnames(w) <- paste0("p", seq_len(ncol(w)))
   as.data.frame(w)
 }
 
-if (is.null(THRESHOLD_GRID)) {
+if (is.na(THRESHOLD_ENDPOINT)) {
+  THRESHOLD_GRID <- 0
+} else if (is.null(THRESHOLD_GRID)) {
   THRESHOLD_GRID <- auto_threshold_grid(subject_data, endpoint_specs[[THRESHOLD_ENDPOINT]], MAX_AUTO_THRESHOLDS)
 }
 THRESHOLD_GRID <- sort(unique(as.numeric(THRESHOLD_GRID)))
 if (!0 %in% THRESHOLD_GRID) THRESHOLD_GRID <- sort(unique(c(0, THRESHOLD_GRID)))
+if (length(THRESHOLD_GRID) == 0 || all(!is.finite(THRESHOLD_GRID))) THRESHOLD_GRID <- 0
 
 WEIGHT_GRID <- make_weight_grid(M_ENDPOINTS, WEIGHT_MODE, WEIGHT_STEP, WEIGHT_CONSTRAINT)
 EQUAL_WEIGHTS <- rep(1 / M_ENDPOINTS, M_ENDPOINTS)
 NATURAL_ORDER <- seq_len(M_ENDPOINTS)
 ALL_ORDERS <- all_permutations(seq_len(M_ENDPOINTS))
 
-cat("Threshold grid for endpoint", THRESHOLD_ENDPOINT, ":", paste(THRESHOLD_GRID, collapse = ", "), "\n")
+cat("Threshold endpoint:", THRESHOLD_ENDPOINT, "(", THRESHOLD_ENDPOINT_NAME, ",", THRESHOLD_ENDPOINT_TYPE, ")\n")
+cat("Threshold grid:", paste(THRESHOLD_GRID, collapse = ", "), "\n")
 cat("Weight grid:\n")
 print(WEIGHT_GRID)
 
@@ -613,10 +654,10 @@ make_candidate_grid <- function(orders, weights_df, thresholds) {
 
 make_methods <- function() {
   methods <- list()
-
+  
   eq_df <- as.data.frame(as.list(EQUAL_WEIGHTS))
   names(eq_df) <- paste0("p", seq_len(M_ENDPOINTS))
-
+  
   natural_grid <- make_candidate_grid(list(NATURAL_ORDER), eq_df, 0)
   methods[[length(methods) + 1L]] <- list(
     id = "original",
@@ -624,7 +665,7 @@ make_methods <- function() {
     description = "Fixed natural order, equal weights, no threshold",
     grid = natural_grid
   )
-
+  
   if (REPORT_ALL_FIXED_ORDERS) {
     for (ord in ALL_ORDERS) {
       if (identical(ord, NATURAL_ORDER)) next
@@ -637,56 +678,56 @@ make_methods <- function() {
       )
     }
   }
-
+  
   methods[[length(methods) + 1L]] <- list(
     id = "M_ord",
     notation = "M_ord",
     description = "Maximize over endpoint order; equal weights; no threshold",
     grid = make_candidate_grid(ALL_ORDERS, eq_df, 0)
   )
-
+  
   methods[[length(methods) + 1L]] <- list(
     id = "M_wt",
     notation = ifelse(M_ENDPOINTS == 2, "M_wt^0.5", "M_wt^(3)"),
     description = "Fixed natural order; maximize over weights; no threshold",
     grid = make_candidate_grid(list(NATURAL_ORDER), WEIGHT_GRID, 0)
   )
-
+  
   methods[[length(methods) + 1L]] <- list(
     id = "M_ord_wt",
     notation = ifelse(M_ENDPOINTS == 2, "M_ord,wt^0.5", "M_ord,wt^(3)"),
     description = "Maximize over endpoint order and weights; no threshold",
     grid = make_candidate_grid(ALL_ORDERS, WEIGHT_GRID, 0)
   )
-
+  
   methods[[length(methods) + 1L]] <- list(
     id = "M_thresh",
     notation = "M_thresh",
-    description = "Fixed natural order; equal weights; maximize over threshold",
+    description = "Fixed natural order; equal weights; maximize threshold on the time-to-event endpoint",
     grid = make_candidate_grid(list(NATURAL_ORDER), eq_df, THRESHOLD_GRID)
   )
-
+  
   methods[[length(methods) + 1L]] <- list(
     id = "M_wt_thresh",
     notation = ifelse(M_ENDPOINTS == 2, "M_wt,thresh^0.5", "M_wt,thresh^(3)"),
-    description = "Fixed natural order; maximize over weights and threshold",
+    description = "Fixed natural order; maximize over weights and threshold on the time-to-event endpoint",
     grid = make_candidate_grid(list(NATURAL_ORDER), WEIGHT_GRID, THRESHOLD_GRID)
   )
-
+  
   methods[[length(methods) + 1L]] <- list(
     id = "M_ord_thresh",
     notation = "M_ord,thresh",
-    description = "Maximize over endpoint order and threshold; equal weights",
+    description = "Maximize over endpoint order and threshold on the time-to-event endpoint; equal weights",
     grid = make_candidate_grid(ALL_ORDERS, eq_df, THRESHOLD_GRID)
   )
-
+  
   methods[[length(methods) + 1L]] <- list(
     id = "M_ord_wt_thresh",
     notation = ifelse(M_ENDPOINTS == 2, "M_ord,wt,thresh^0.5", "M_ord,wt,thresh^(3)"),
-    description = "Full adaptive: maximize over order, weights, and threshold",
+    description = "Full adaptive: maximize over order, weights, and threshold on the time-to-event endpoint",
     grid = make_candidate_grid(ALL_ORDERS, WEIGHT_GRID, THRESHOLD_GRID)
   )
-
+  
   methods
 }
 
@@ -705,13 +746,13 @@ fwrite(method_overview, file.path(OUTPUT_DIR, "REALDATA_method_overview.csv"))
 #candidate evulation
 evaluate_candidate_table <- function(data, arm_vec, candidate_grid, measure) {
   rows <- vector("list", nrow(candidate_grid))
-
+  
   for (i in seq_len(nrow(candidate_grid))) {
     cg <- candidate_grid[i]
     ord <- parse_order(cg$order_key)
     weights <- c(cg$p1, cg$p2)
     if (M_ENDPOINTS == 3) weights <- c(cg$p1, cg$p2, cg$p3)
-
+    
     cc <- counts_for_candidate(
       data = data,
       arm_vec = arm_vec,
@@ -721,7 +762,7 @@ evaluate_candidate_table <- function(data, arm_vec, candidate_grid, measure) {
       threshold_endpoint = THRESHOLD_ENDPOINT,
       measure = measure
     )
-
+    
     win_cols <- as.list(rep(NA_real_, 3))
     loss_cols <- as.list(rep(NA_real_, 3))
     names(win_cols) <- paste0("win_rank", 1:3)
@@ -730,7 +771,7 @@ evaluate_candidate_table <- function(data, arm_vec, candidate_grid, measure) {
       win_cols[[paste0("win_rank", r)]] <- cc$wins_by_rank[r]
       loss_cols[[paste0("loss_rank", r)]] <- cc$losses_by_rank[r]
     }
-
+    
     rows[[i]] <- c(
       list(
         order_key = cg$order_key,
@@ -751,7 +792,7 @@ evaluate_candidate_table <- function(data, arm_vec, candidate_grid, measure) {
       loss_cols
     )
   }
-
+  
   as.data.table(rows)
 }
 
@@ -774,22 +815,22 @@ run_one_method_measure <- function(method_obj, measure) {
   clean_id <- clean_method_file_name(paste(measure, method_id, sep = "_"))
   checkpoint_path <- file.path(OUTPUT_DIR, "checkpoints", paste0(clean_id, "_checkpoint.rds"))
   final_path <- file.path(OUTPUT_DIR, "checkpoints", paste0(clean_id, "_final.rds"))
-
+  
   if (file.exists(final_path) && !FORCE_RERUN) {
     return(readRDS(final_path))
   }
-
+  
   cat("\nRunning", measure, method_id, "with", nrow(method_obj$grid), "candidates\n")
-
+  
   obs_table <- evaluate_candidate_table(subject_data, subject_data$arm, method_obj$grid, measure)
   obs_one <- select_best_candidate(obs_table, "one")
   obs_two <- select_best_candidate(obs_table, "two")
-
+  
   start_b <- 1L
   perm_results <- data.table()
   exceed_one <- 0L
   exceed_two <- 0L
-
+  
   if (file.exists(checkpoint_path) && !FORCE_RERUN) {
     chk <- readRDS(checkpoint_path)
     start_b <- chk$next_b
@@ -798,21 +839,21 @@ run_one_method_measure <- function(method_obj, measure) {
     exceed_two <- chk$exceed_two
     cat("  Resuming from permutation", start_b, "\n")
   }
-
+  
   if (start_b <= B_PERM) {
     for (b in start_b:B_PERM) {
       perm_arm <- PERM_ARM_MATRIX[, b]
       perm_table <- evaluate_candidate_table(subject_data, perm_arm, method_obj$grid, measure)
       perm_one <- select_best_candidate(perm_table, "one")
       perm_two <- select_best_candidate(perm_table, "two")
-
+      
       if (!is.na(perm_one$statistic) && !is.na(obs_one$statistic) && perm_one$statistic >= obs_one$statistic) {
         exceed_one <- exceed_one + 1L
       }
       if (!is.na(perm_two$abslog_statistic) && !is.na(obs_two$abslog_statistic) && perm_two$abslog_statistic >= obs_two$abslog_statistic) {
         exceed_two <- exceed_two + 1L
       }
-
+      
       perm_results <- rbind(
         perm_results,
         data.table(
@@ -837,7 +878,7 @@ run_one_method_measure <- function(method_obj, measure) {
         ),
         fill = TRUE
       )
-
+      
       if (b %% CHECKPOINT_EVERY == 0 || b == B_PERM) {
         saveRDS(
           list(
@@ -852,10 +893,10 @@ run_one_method_measure <- function(method_obj, measure) {
       }
     }
   }
-
+  
   p_one <- (exceed_one + 1) / (B_PERM + 1)
   p_two <- (exceed_two + 1) / (B_PERM + 1)
-
+  
   out <- list(
     measure = measure,
     method_id = method_id,
@@ -872,7 +913,7 @@ run_one_method_measure <- function(method_obj, measure) {
     exceed_two = exceed_two,
     B = B_PERM
   )
-
+  
   saveRDS(out, final_path)
   out
 }
@@ -881,7 +922,7 @@ flatten_result <- function(res) {
   one <- res$obs_one
   two <- res$obs_two
   pr <- res$perm_results
-
+  
   data.table(
     measure = res$measure,
     method_id = res$method_id,
@@ -889,7 +930,7 @@ flatten_result <- function(res) {
     description = res$description,
     n_candidates = res$n_candidates,
     B_perm = res$B,
-
+    
     statistic_one = one$statistic,
     p_one = res$p_one,
     reject_one_0.05 = res$p_one < 0.05,
@@ -910,7 +951,7 @@ flatten_result <- function(res) {
     loss_rank3_one = one$loss_rank3,
     mean_perm_tie_count_one = mean(pr$tie_count_one, na.rm = TRUE),
     mean_perm_tie_proportion_one = mean(pr$tie_proportion_one, na.rm = TRUE),
-
+    
     statistic_two = two$statistic,
     abslog_statistic_two = two$abslog_statistic,
     p_two = res$p_two,
@@ -1010,6 +1051,8 @@ subject_summary <- data.table(
   n_control_B = sum(subject_data$arm == 0),
   n_endpoints = M_ENDPOINTS,
   threshold_endpoint = THRESHOLD_ENDPOINT,
+  threshold_endpoint_name = THRESHOLD_ENDPOINT_NAME,
+  threshold_endpoint_type = THRESHOLD_ENDPOINT_TYPE,
   threshold_grid = paste(THRESHOLD_GRID, collapse = ","),
   B_perm = B_PERM,
   seed = SEED
@@ -1022,11 +1065,11 @@ run_logrank_one_endpoint <- function(data, ep, label) {
   if (ep$type != "time") {
     return(data.table(test = label, available = FALSE, reason = "endpoint is not time-to-event"))
   }
-
+  
   surv_obj <- survival::Surv(time = data[[ep$time_col]], event = data[[ep$event_col]] == 1)
   fit <- survival::survdiff(surv_obj ~ data$arm)
   p_two <- 1 - stats::pchisq(fit$chisq, df = 1)
-
+  
   cox <- tryCatch(survival::coxph(surv_obj ~ data$arm), error = function(e) NULL)
   if (!is.null(cox)) {
     sm <- summary(cox)
@@ -1039,7 +1082,7 @@ run_logrank_one_endpoint <- function(data, ep, label) {
   } else {
     beta <- se <- z <- hr <- p_one_benefit <- NA_real_
   }
-
+  
   data.table(
     test = label,
     available = TRUE,
@@ -1058,10 +1101,10 @@ make_composite_time_data <- function(data, endpoint_specs) {
   if (!all(sapply(endpoint_specs, function(ep) ep$type == "time"))) return(NULL)
   times <- sapply(endpoint_specs, function(ep) safe_num(data[[ep$time_col]]))
   events <- sapply(endpoint_specs, function(ep) as.integer(data[[ep$event_col]] == 1))
-
+  
   comp_time <- rep(NA_real_, nrow(data))
   comp_event <- rep(0L, nrow(data))
-
+  
   for (i in seq_len(nrow(data))) {
     ev_times <- times[i, events[i, ] == 1]
     if (length(ev_times) > 0) {
@@ -1072,7 +1115,7 @@ make_composite_time_data <- function(data, endpoint_specs) {
       comp_event[i] <- 0L
     }
   }
-
+  
   data.frame(id = data$id, arm = data$arm, comp_time = comp_time, comp_event = comp_event)
 }
 
@@ -1083,7 +1126,7 @@ if (RUN_LOGRANK) {
     run_logrank_one_endpoint(subject_data, endpoint_specs[[1]], "Log-rank outcome 1"),
     fill = TRUE
   )
-
+  
   if (RUN_COMPOSITE_LOGRANK_IF_POSSIBLE) {
     comp <- make_composite_time_data(subject_data, endpoint_specs)
     if (!is.null(comp)) {
@@ -1173,8 +1216,12 @@ readme <- c(
   "WO statistic:",
   "(sum_r p_r W_A,r + 0.5*T) / (sum_r p_r W_B,r + 0.5*T)",
   "",
-  "Threshold endpoint:",
+  "Threshold rule:",
+  "Thresholds are always applied to the selected time-to-event endpoint number, not to the first rank in the selected order.",
+  "Thresholds are never applied to count endpoints; count endpoints are compared directly.",
   paste0("THRESHOLD_ENDPOINT = ", THRESHOLD_ENDPOINT),
+  paste0("THRESHOLD_ENDPOINT_NAME = ", THRESHOLD_ENDPOINT_NAME),
+  paste0("THRESHOLD_ENDPOINT_TYPE = ", THRESHOLD_ENDPOINT_TYPE),
   paste0("THRESHOLD_GRID = ", paste(THRESHOLD_GRID, collapse = ", ")),
   "",
   "Weight grid:",
@@ -1191,3 +1238,5 @@ cat("\nMain result table:\n")
 cat(file.path(OUTPUT_DIR, "REALDATA_all_WR_WO_method_results.csv"), "\n")
 cat("\nLog-rank table:\n")
 cat(file.path(OUTPUT_DIR, "REALDATA_logrank_results.csv"), "\n")
+
+
