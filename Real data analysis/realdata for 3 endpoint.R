@@ -2,8 +2,6 @@
 rm(list = ls())
 options(stringsAsFactors = FALSE)
 
-
-# USER CONFIGURATION
 # Input and output paths
 DATA_PATH <- ""
 DATA_OBJECT_NAME <- NULL
@@ -85,7 +83,6 @@ TIME_UNIT_LABEL <- "months"
 MAX_AUTO_THRESHOLDS_PER_ENDPOINT <- 10L
 
 #Weight search configuration
-
 #WEIGHT_MODE = "vertices" uses vertices of the ordered weight simplex.
 #For 3 endpoints with p1 >= p2 >= p3 >= 0 and sum=1, vertices are:
 #(1,0,0), (0.5,0.5,0), (1/3,1/3,1/3).
@@ -1596,7 +1593,6 @@ readme <- c(
   paste0("Number of unique candidate rules evaluated per permutation = ", nrow(ALL_CANDIDATES))
 )
 writeLines(readme, file.path(OUTPUT_DIR, "README_REALDATA_full_adaptive_WR_WO.txt"))
-
 
 #Output
 cat("\nDone. Outputs saved in:\n")
