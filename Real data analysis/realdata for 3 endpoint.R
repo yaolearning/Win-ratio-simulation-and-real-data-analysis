@@ -1,16 +1,16 @@
-# Clean environment
+#Clean environment
 rm(list = ls())
 options(stringsAsFactors = FALSE)
 
 
-#USER CONFIGURATION
-#Input and output paths
-DATA_PATH <- "C:/Users/Lenovo/Desktop/your_real_data.csv"
+# USER CONFIGURATION
+# Input and output paths
+DATA_PATH <- ""
 DATA_OBJECT_NAME <- NULL
 
-OUTPUT_DIR <- "C:/Users/Lenovo/Desktop/realdata_3endpoint_WR_WO_single_permutation_multi_threshold"
+OUTPUT_DIR <- ""
 
-# Data format
+#Data format
 #Use "wide" if each subject has one row.
 #Use "event_long" if the data has one row per event, e.g. ID/time/status/trt.
 DATA_FORMAT <- "wide"  # "wide" or "event_long"
@@ -23,7 +23,7 @@ ARM_COL <- "ARM"
 
 #Endpoint types supported:
 #type = "time"       adverse time-to-event endpoint; larger event-free time is better
-#                     needs time_col and event_col, event_col coded 1=event, 0=censoring
+#needs time_col and event_col, event_col coded 1=event, 0=censoring
 #type = "count"      recurrent/count adverse endpoint; lower count is better; needs count_col
 #type = "binary"     adverse binary endpoint; lower value is better; needs value_col
 #type = "continuous" continuous endpoint; set higher_better TRUE/FALSE; needs value_col
@@ -32,22 +32,22 @@ ARM_COL <- "ARM"
 ENDPOINTS_WIDE <- list(
   list(name = "Outcome 1", type = "time",  time_col = "FUTIME", event_col = "CNSR"),
   list(name = "Outcome 2", type = "count", count_col = "NUMHOSP"),
-  # Replace this with your real third endpoint. Delete it for two-endpoint data.
+  #Replace this with your real third endpoint. Delete it for two-endpoint data.
   list(name = "Outcome 3", type = "count", count_col = "ENDPOINT3_COUNT")
 )
 
-# Event-long format
-# Required columns for event_long format:
-# EVENT_ID_COL, EVENT_ARM_COL, EVENT_TIME_COL, EVENT_STATUS_COL.
-# status code 0 is treated as censoring/follow-up row.
+#Event-long format
+#event_long format:
+#EVENT_ID_COL, EVENT_ARM_COL, EVENT_TIME_COL, EVENT_STATUS_COL.
+#status code 0 is treated as censoring/follow-up row.
 EVENT_ID_COL <- "patid"
 EVENT_ARM_COL <- "trt_ab"
 EVENT_TIME_COL <- "time"
 EVENT_STATUS_COL <- "status"
 
-# For event_long format, define endpoints by status_code.
-# type = "time"  : first event of that status code; otherwise censored at max follow-up
-# type = "count" : number of events with that status code
+#For event_long format, define endpoints by status_code.
+#type = "time"  : first event of that status code; otherwise censored at max follow-up
+#type = "count" : number of events with that status code
 EVENT_ENDPOINTS <- list(
   list(name = "Death", type = "time",  status_code = 1),
   list(name = "Hospitalization", type = "count", status_code = 2),
@@ -56,16 +56,17 @@ EVENT_ENDPOINTS <- list(
 )
 
 
-
+#Threshold configuration
 #Thresholds are applied only to time-to-event endpoints.
 #They follow the endpoint number, not the rank in a selected ordering.
 #If THRESHOLD_TIME_ENDPOINTS = "auto", every endpoint with type = "time"
 #receives its own threshold grid. Therefore, if there are two time-to-event
 #endpoints, the threshold search uses two thresholds, one for each time endpoint.
 #You may also specify a subset manually, e.g. c(1, 3). Every listed endpoint
+#must have type = "time".
 THRESHOLD_TIME_ENDPOINTS <- "auto"  # "auto" or an integer vector such as c(1, 3)
 
-
+#Optional manual threshold grids by endpoint number.
 #Units must match the data time unit.
 #Non-time endpoints are ignored and always use threshold 0.
 #Example:
@@ -73,6 +74,7 @@ THRESHOLD_TIME_ENDPOINTS <- "auto"  # "auto" or an integer vector such as c(1, 3
 #`1` = c(0, 3, 6, 12, 18, 24),
 #`2` = NULL,
 #`3` = c(0, 6, 12, 24)
+#)
 THRESHOLD_GRID_BY_ENDPOINT <- list(
   `1` = NULL,
   `2` = NULL,
@@ -83,9 +85,11 @@ TIME_UNIT_LABEL <- "months"
 MAX_AUTO_THRESHOLDS_PER_ENDPOINT <- 10L
 
 #Weight search configuration
+
 #WEIGHT_MODE = "vertices" uses vertices of the ordered weight simplex.
 #For 3 endpoints with p1 >= p2 >= p3 >= 0 and sum=1, vertices are:
 #(1,0,0), (0.5,0.5,0), (1/3,1/3,1/3).
+#WEIGHT_MODE = "grid" uses a grid over p1,p2,p3.
 WEIGHT_MODE <- "vertices"  # "vertices" or "grid"
 WEIGHT_STEP <- 0.05
 
@@ -95,14 +99,14 @@ WEIGHT_STEP <- 0.05
 WEIGHT_CONSTRAINT <- "ordered"  # "ordered" or "simplex"
 
 
-#permutation configuration
+#Permutation
 B_PERM <- 500L
 SEED <- 20260818
 CHECKPOINT_EVERY <- 25L
 FORCE_RERUN <- FALSE
 
 
-#Method/output configuration
+#Method/output 
 REPORT_ALL_FIXED_ORDERS <- TRUE
 RUN_WR <- TRUE
 RUN_WO <- TRUE
@@ -122,11 +126,163 @@ library(data.table)
 library(survival)
 library(ggplot2)
 
+RCPP_CORE_AVAILABLE <- FALSE
+if (!requireNamespace("Rcpp", quietly = TRUE)) {
+  try(suppressWarnings(install.packages("Rcpp")), silent = TRUE)
+}
+if (requireNamespace("Rcpp", quietly = TRUE)) {
+  RCPP_CORE_AVAILABLE <- tryCatch({
+    Rcpp::cppFunction(code = '
+#include <Rcpp.h>
+#include <cmath>
+using namespace Rcpp;
+
+static double ratio_safe_cpp(double num, double den) {
+  if (NumericVector::is_na(num) || NumericVector::is_na(den)) return NA_REAL;
+  if (den == 0.0 && num == 0.0) return 1.0;
+  if (den == 0.0 && num > 0.0) return R_PosInf;
+  if (num == 0.0 && den > 0.0) return 0.0;
+  return num / den;
+}
+
+static double abslog_safe_cpp(double x) {
+  if (NumericVector::is_na(x)) return NA_REAL;
+  if (!R_finite(x)) return R_PosInf;
+  if (x <= 0.0) return R_PosInf;
+  return std::fabs(std::log(x));
+}
+
+static bool ok_num(double x) {
+  return !NumericVector::is_na(x) && R_finite(x);
+}
+
+// [[Rcpp::export]]
+List cpp_counts_for_candidate_core(IntegerVector idx_A,
+                                   IntegerVector idx_B,
+                                   IntegerVector order_vec,
+                                   NumericVector weights,
+                                   NumericVector thresholds_by_endpoint,
+                                   IntegerVector type_code,
+                                   NumericMatrix time_mat,
+                                   IntegerMatrix event_mat,
+                                   NumericMatrix value_mat) {
+  int n_pairs = idx_A.size();
+  int m = type_code.size();
+  NumericVector wins_by_rank(m);
+  NumericVector losses_by_rank(m);
+  int tie_count = 0;
+
+  for (int i = 0; i < n_pairs; ++i) {
+    int ia = idx_A[i] - 1;
+    int ib = idx_B[i] - 1;
+    bool resolved = false;
+
+    for (int r = 0; r < order_vec.size(); ++r) {
+      int ep = order_vec[r] - 1;
+      int typ = type_code[ep];
+      int cmp = 0;
+
+      if (typ == 1) {
+        double thr = thresholds_by_endpoint[ep];
+        if (NumericVector::is_na(thr) || !R_finite(thr)) thr = 0.0;
+        double ta = time_mat(ia, ep);
+        double tb = time_mat(ib, ep);
+        int ea = event_mat(ia, ep);
+        int eb = event_mat(ib, ep);
+        bool ta_ok = ok_num(ta);
+        bool tb_ok = ok_num(tb);
+        bool ea1 = (ea == 1);
+        bool eb1 = (eb == 1);
+
+        if (ta_ok && tb_ok) {
+          if (ea1 && eb1) {
+            if (ta - tb > thr) cmp = 1;
+            else if (tb - ta > thr) cmp = -1;
+          } else if (!ea1 && eb1) {
+            if (ta - tb > thr) cmp = 1;
+          } else if (ea1 && !eb1) {
+            if (tb - ta > thr) cmp = -1;
+          }
+        }
+      } else if (typ == 2 || typ == 3) {
+        double ca = value_mat(ia, ep);
+        double cb = value_mat(ib, ep);
+        if (ok_num(ca) && ok_num(cb)) {
+          if (cb - ca > 0.0) cmp = 1;
+          else if (ca - cb > 0.0) cmp = -1;
+        }
+      } else if (typ == 4) {
+        double va = value_mat(ia, ep);
+        double vb = value_mat(ib, ep);
+        if (ok_num(va) && ok_num(vb)) {
+          if (va - vb > 0.0) cmp = 1;
+          else if (vb - va > 0.0) cmp = -1;
+        }
+      } else if (typ == 5) {
+        double va = value_mat(ia, ep);
+        double vb = value_mat(ib, ep);
+        if (ok_num(va) && ok_num(vb)) {
+          if (vb - va > 0.0) cmp = 1;
+          else if (va - vb > 0.0) cmp = -1;
+        }
+      }
+
+      if (cmp == 1) {
+        wins_by_rank[r] += 1.0;
+        resolved = true;
+        break;
+      } else if (cmp == -1) {
+        losses_by_rank[r] += 1.0;
+        resolved = true;
+        break;
+      }
+    }
+
+    if (!resolved) tie_count += 1;
+  }
+
+  double weighted_win = 0.0;
+  double weighted_loss = 0.0;
+  for (int r = 0; r < m; ++r) {
+    double w = weights[r];
+    if (NumericVector::is_na(w) || !R_finite(w)) w = 0.0;
+    weighted_win += w * wins_by_rank[r];
+    weighted_loss += w * losses_by_rank[r];
+  }
+
+  double WR_statistic = ratio_safe_cpp(weighted_win, weighted_loss);
+  double WO_statistic = ratio_safe_cpp(weighted_win + 0.5 * tie_count,
+                                       weighted_loss + 0.5 * tie_count);
+
+  return List::create(
+    _["WR_statistic"] = WR_statistic,
+    _["WO_statistic"] = WO_statistic,
+    _["WR_abslog"] = abslog_safe_cpp(WR_statistic),
+    _["WO_abslog"] = abslog_safe_cpp(WO_statistic),
+    _["weighted_win"] = weighted_win,
+    _["weighted_loss"] = weighted_loss,
+    _["tie_count"] = tie_count,
+    _["tie_proportion"] = static_cast<double>(tie_count) / n_pairs,
+    _["n_pairs"] = n_pairs,
+    _["wins_by_rank"] = wins_by_rank,
+    _["losses_by_rank"] = losses_by_rank
+  );
+}
+')
+    TRUE
+  }, error = function(e) {
+    warning("Rcpp core is not available; using the original R implementation. ", conditionMessage(e))
+    FALSE
+  })
+}
+
+
 for (d in c(OUTPUT_DIR, file.path(OUTPUT_DIR, "checkpoints"), file.path(OUTPUT_DIR, "figures"))) {
   dir.create(d, recursive = TRUE, showWarnings = FALSE)
 }
 
 set.seed(SEED)
+
 
 #Helper functions
 safe_num <- function(x) suppressWarnings(as.numeric(as.character(x)))
@@ -181,7 +337,6 @@ make_threshold_string <- function(thr_vec) {
 
 
 #Read and prepare data
-
 read_any_data <- function(path, object_name = NULL) {
   if (!file.exists(path)) stop("DATA_PATH not found: ", path)
   ext <- tolower(tools::file_ext(path))
@@ -349,14 +504,54 @@ endpoint_specs <- prepared$endpoints
 M_ENDPOINTS <- length(endpoint_specs)
 if (M_ENDPOINTS < 2 || M_ENDPOINTS > 3) stop("This script supports 2 or 3 endpoints.")
 
+prepare_endpoint_cache_for_cpp <- function(data, endpoint_specs) {
+  n <- nrow(data)
+  m <- length(endpoint_specs)
+  type_code <- integer(m)
+  time_mat <- matrix(NA_real_, nrow = n, ncol = m)
+  event_mat <- matrix(0L, nrow = n, ncol = m)
+  value_mat <- matrix(NA_real_, nrow = n, ncol = m)
+  
+  for (j in seq_len(m)) {
+    ep <- endpoint_specs[[j]]
+    ep_type <- tolower(ep$type)
+    if (ep_type == "time") {
+      type_code[j] <- 1L
+      time_mat[, j] <- safe_num(data[[ep$time_col]])
+      event_mat[, j] <- as.integer(safe_num(data[[ep$event_col]]) == 1)
+      event_mat[is.na(event_mat[, j]), j] <- 0L
+    } else if (ep_type == "count") {
+      type_code[j] <- 2L
+      value_mat[, j] <- safe_num(data[[ep$count_col]])
+    } else if (ep_type == "binary") {
+      type_code[j] <- 3L
+      value_mat[, j] <- safe_num(data[[ep$value_col]])
+    } else if (ep_type == "continuous") {
+      type_code[j] <- if (isTRUE(ep$higher_better)) 4L else 5L
+      value_mat[, j] <- safe_num(data[[ep$value_col]])
+    } else {
+      stop("Unsupported endpoint type for Rcpp core: ", ep$type)
+    }
+  }
+  
+  list(
+    type_code = type_code,
+    time_mat = time_mat,
+    event_mat = event_mat,
+    value_mat = value_mat
+  )
+}
+
+RCPP_ENDPOINT_CACHE <- prepare_endpoint_cache_for_cpp(subject_data, endpoint_specs)
+
+
 cat("Prepared subject-level data:\n")
 cat("  n subjects:", nrow(subject_data), "\n")
 cat("  treatment A:", sum(subject_data$arm == 1), "\n")
 cat("  control B:", sum(subject_data$arm == 0), "\n")
 cat("  endpoints:", M_ENDPOINTS, "\n")
 
-
-#endpoint comparison
+#Endpoint comparison rules
 compare_endpoint_pairs <- function(data, idx_A, idx_B, endpoint_spec, threshold = 0) {
   n <- length(idx_A)
   out <- integer(n)  # +1 treatment wins, -1 control wins, 0 tie/unresolved
@@ -372,11 +567,11 @@ compare_endpoint_pairs <- function(data, idx_A, idx_B, endpoint_spec, threshold 
     out[both_event & (ta - tb > threshold)] <- 1L
     out[both_event & (tb - ta > threshold)] <- -1L
     
-    ## A censored after B has event: A has known longer event-free time.
+    #A censored after B has event: A has known longer event-free time.
     a_cens_b_event <- ea == 0 & eb == 1 & !is.na(ta) & !is.na(tb)
     out[a_cens_b_event & (ta - tb > threshold)] <- 1L
     
-    ## B censored after A has event: B has known longer event-free time.
+    #B censored after A has event: B has known longer event-free time.
     a_event_b_cens <- ea == 1 & eb == 0 & !is.na(ta) & !is.na(tb)
     out[a_event_b_cens & (tb - ta > threshold)] <- -1L
     
@@ -439,6 +634,20 @@ counts_for_candidate <- function(data, arm_vec, order_vec, weights, thresholds_b
   idx_B <- pairs$B
   n_pairs <- pairs$n_pairs
   
+  if (isTRUE(RCPP_CORE_AVAILABLE)) {
+    return(cpp_counts_for_candidate_core(
+      idx_A = as.integer(idx_A),
+      idx_B = as.integer(idx_B),
+      order_vec = as.integer(order_vec),
+      weights = as.numeric(weights),
+      thresholds_by_endpoint = as.numeric(thresholds_by_endpoint),
+      type_code = RCPP_ENDPOINT_CACHE$type_code,
+      time_mat = RCPP_ENDPOINT_CACHE$time_mat,
+      event_mat = RCPP_ENDPOINT_CACHE$event_mat,
+      value_mat = RCPP_ENDPOINT_CACHE$value_mat
+    ))
+  }
+  
   wins_by_rank <- rep(0, M_ENDPOINTS)
   losses_by_rank <- rep(0, M_ENDPOINTS)
   unresolved <- rep(TRUE, n_pairs)
@@ -491,7 +700,6 @@ counts_for_candidate <- function(data, arm_vec, order_vec, weights, thresholds_b
     losses_by_rank = losses_by_rank
   )
 }
-
 
 #Threshold and weight grids
 auto_threshold_grid <- function(data, endpoint_spec, max_thresholds = 10L) {
@@ -663,6 +871,7 @@ cat("Threshold candidate combinations:", nrow(THRESHOLD_GRID_DF), "\n")
 cat("Weight grid:\n")
 print(WEIGHT_GRID)
 
+
 #Candidate grids and method definitions
 zero_threshold_grid_df <- function(m) {
   dt <- data.table(dummy = 1L)
@@ -806,7 +1015,6 @@ cat("Unique candidates evaluated per observed/permutation dataset:", nrow(ALL_CA
 
 
 #Candidate evaluation and selection
-
 evaluate_all_candidates <- function(data, arm_vec, candidate_grid) {
   pairs <- get_pair_indices(arm_vec)
   rows <- vector("list", nrow(candidate_grid))
@@ -1139,6 +1347,7 @@ method_results <- flatten_final_result(analysis_out)
 fwrite(method_results, file.path(OUTPUT_DIR, "REALDATA_all_WR_WO_method_results.csv"))
 fwrite(analysis_out$perm_selected, file.path(OUTPUT_DIR, "REALDATA_permutation_selected_results_all_methods.csv"))
 
+
 #Endpoint and data summaries
 endpoint_summary_rows <- list()
 for (j in seq_along(endpoint_specs)) {
@@ -1269,7 +1478,7 @@ if (RUN_LOGRANK) {
     fill = TRUE
   )
   
-  ## Also report log-rank tests for other time-to-event endpoints, if present.
+  #Also report log-rank tests for other time-to-event endpoints, if present.
   time_ids <- which(vapply(endpoint_specs, function(ep) ep$type == "time", logical(1)))
   if (length(time_ids) > 0) {
     for (j in setdiff(time_ids, 1L)) {
@@ -1387,6 +1596,7 @@ readme <- c(
   paste0("Number of unique candidate rules evaluated per permutation = ", nrow(ALL_CANDIDATES))
 )
 writeLines(readme, file.path(OUTPUT_DIR, "README_REALDATA_full_adaptive_WR_WO.txt"))
+
 
 #Output
 cat("\nDone. Outputs saved in:\n")
