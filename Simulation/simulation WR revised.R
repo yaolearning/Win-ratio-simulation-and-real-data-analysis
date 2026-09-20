@@ -1,3 +1,6 @@
+RUN_FULL_SIMULATION <- FALSE
+Sys.setenv(RUN_FULL_SIMULATION = "FALSE")
+
 # Packages and global settings
 install_if_missing <- function(pkg) {
   if (!requireNamespace(pkg, quietly = TRUE)) {
@@ -32,10 +35,6 @@ VERBOSE <- TRUE
 SAVE_EXAMPLE_PLOTS <- FALSE
 
 # Weighted p grids.
-# p is the weight assigned to the first endpoint in the selected hierarchy.
-# For death-first order: p weights death/survival; 1-p weights hospitalization.
-# For hospitalization-first order: p weights hospitalization; 1-p weights death.
-# No p = 0 value is used. Values below 0.5 are exploratory only.
 P_GRID_EXPLORATORY <- seq(0.01, 0.49, by = 0.01)
 P_GRID_LOW <- P_GRID_EXPLORATORY
 P_GRID_PRIMARY <- seq(0.50, 1.00, by = 0.01)
@@ -44,6 +43,7 @@ P_GRID_ALL <- sort(unique(c(P_GRID_EXPLORATORY, P_GRID_PRIMARY)))
 CLINICAL_T_MONTHS <- c(1, 3, 6, 12, 18, 24)
 MAX_T_GRID_SIZE <- 10
 EPS_WR <- 1e-8
+
 
 # Small safe helpers
 safe_mean <- function(x) {
@@ -93,9 +93,7 @@ wr_log <- function(wr) {
   out
 }
 
-# Primary two-sided WR statistic. Because WR is a ratio with null value 1,
-# abs(log(WR)) treats reciprocal effects (for example, 2 and 0.5) as equally
-# far from the null.
+# Primary two-sided WR statistic. 
 wr_abs_log <- function(wr) {
   abs(wr_log(wr))
 }
@@ -108,8 +106,7 @@ right_tail_perm_p <- function(perm.stat, obs.stat) {
   (1 + sum(perm.stat[ok] >= obs.stat)) / (sum(ok) + 1)
 }
 
-# Retained only for directional diagnostic columns. It is not used to form the
-# primary two-sided WR p-value, which is based on the right tail of abs(log WR).
+# Retained only for directional diagnostic columns. 
 left_tail_perm_p <- function(perm.stat, obs.stat) {
   perm.stat <- as.numeric(perm.stat)
   obs.stat <- as.numeric(obs.stat)[1]
@@ -146,9 +143,8 @@ wr_perm_p_two_sided <- function(perm.wr, obs.wr) {
   right_tail_perm_p(wr_abs_log(perm.wr), wr_abs_log(obs.wr))
 }
 
-# The following compatibility helpers are retained. 
-# They are not used to calculate the
-# primary abs(log WR) two-sided p-value.
+# The following compatibility helpers are retained so that no previously
+# available object fields disappear. .
 choose_two_sided_direction <- function(p.upper, p.lower) {
   p.upper <- as.numeric(p.upper)
   p.lower <- as.numeric(p.lower)
@@ -264,8 +260,7 @@ method_label_final <- function(method) {
     maxOrderWR_primary = "Maximum-order weighted WR, p >= 0.50",
     maxOrderWR_full = "Maximum-order weighted WR, full p grid",
     maxWRt = "Threshold max WR(t)",
-    logrank_death = "Log-rank death",
-    logrank_composite = "Log-rank composite"
+    logrank_death = "Log-rank death"
   )
   out <- as.character(method)
   hit <- out %in% names(map)
@@ -599,7 +594,7 @@ List fast_wr_core_revised_cpp(NumericVector futime,
 ')
 
 
-# WR engine in R
+# WR engine
 max_from_curve <- function(curve, method, lower, upper) {
   ix <- which(curve$p >= lower & curve$p <= upper)
   if (length(ix) == 0) {
@@ -812,6 +807,7 @@ composite.statistics <- function(ds) {
   out
 }
 
+
 # Threshold-grid helper
 choose.threshold.grid.primary <- function(ds,
                                           clinical.months = CLINICAL_T_MONTHS,
@@ -865,7 +861,7 @@ choose.threshold.grid.primary <- function(ds,
 }
 
 
-#15-scenario 
+# Final 15-scenario grid
 build.final.15.scenario.grid <- function() {
   base.mort <- -log(0.6)
   scenario_id <- c(
@@ -1146,12 +1142,13 @@ fixed_eval_rows <- function(engine.out, selected.rows,
 }
 
 
-# WR permutation test: output one-sided and two-sided p-values.
-# One-sided WR statistic:
-#   T = WR or max WR
-# Two-sided WR statistic:
-#   T = abs(log(WR)) for fixed candidates
-#   T = max abs(log(WR)) for adaptive candidates
+#WR permutation test: output one-sided and two-sided p-values.
+#One-sided WR statistic:
+#T = WR or max WR
+#Two-sided WR statistic:
+#T = abs(log(WR)) for fixed candidates
+#T = max abs(log(WR)) for adaptive candidates
+#Treatment-label permutation mechanism is unchanged.
 
 perm.test.revised <- function(ds,
                               B = B_PERM,
@@ -1177,7 +1174,7 @@ perm.test.revised <- function(ds,
   T.obs.max.two <- selected_stats_vector(selected.max.two)
   T.obs.max.two.log <- selected_log_vector(selected.max.two)
   
-  # Fixed-selected permutation p-values use the parameter selected from the
+  # fixed-selected permutation p-values use the parameter selected from the
   # observed trial, then evaluate that same parameter in every permutation.
   selected.fixed.one <- selected.max.one
   selected.fixed.two <- selected.max.two
@@ -1229,8 +1226,7 @@ perm.test.revised <- function(ds,
   colnames(perm.pointwise.hosp.first) <- paste0("p_", sprintf("%.2f", p.grid))
   colnames(perm.pointwise.threshold) <- paste0("t_months_", sprintf("%.1f", t.grid * 12))
   
-  
-  # inside the 500-permutation loop is slower.
+  #preallocate selected-parameter records for speed; repeated rbind()
   selected.perm.one.list <- vector("list", B)
   selected.perm.two.list <- vector("list", B)
   
@@ -1251,8 +1247,8 @@ perm.test.revised <- function(ds,
     perm.pointwise.hosp.first[b, ] <- out.b$weighted.hosp.first$WR
     perm.pointwise.threshold[b, ] <- out.b$threshold$WR
     
-    # Repeat the corresponding adaptive selection rule inside every
-    # treatment-label permutation.
+    #repeat the corresponding adaptive selection rule inside every
+    #treatment-label permutation.
     sel.b.one <- selected_wr_rows(out.b, side = "one")
     sel.b.two <- selected_wr_rows(out.b, side = "two")
     sel.b.one <- sel.b.one[match(max.names, sel.b.one$method), , drop = FALSE]
@@ -1309,9 +1305,7 @@ perm.test.revised <- function(ds,
     right_tail_perm_p(perm.fixed.two[, nm], T.obs.fixed.two[nm])
   })
   
-  # Directional diagnostic tails at the abs(log WR)-selected candidate. These
-  # columns are retained for output compatibility but do not define the primary
-  # two-sided p-value above.
+  
   p.value.max.two.upper <- sapply(max.names, function(nm) {
     right_tail_perm_p(perm.max.two.log[, nm], T.obs.max.two.log[nm])
   })
@@ -1393,9 +1387,7 @@ perm.test.revised <- function(ds,
                      wr_log(obs$threshold$WR[k]))
   })
   
-  # Backwards-compatible aliases for fields that existed in the signed-log
-  # They now refer to the signed log of the same candidate selected by
-  # max abs(log WR); the primary two-sided test uses T.obs/T.perm.max.two.
+  
   selected.max.two.upper <- selected.max.two
   selected.max.two.lower <- selected.max.two
   selected.fixed.two.upper <- selected.fixed.two
@@ -1522,9 +1514,10 @@ perm.test.revised <- function(ds,
   )
 }
 
+
 # Log-rank: output both one-sided and two-sided.
 # One-sided direction = treatment benefit, i.e. Cox HR < 1 for ARM = 1.
-# If ARM=1 is treatment, Cox z < 0 supports benefit, so p_one = Phi(z).
+# If ARM=1 is treatment, Cox z < 0 supports benefit, so p_one = Phi(z).--
 logrank_one_endpoint <- function(dat, time.col, event.col, method, endpoint, note) {
   dat <- dat[is.finite(dat[[time.col]]) & !is.na(dat[[event.col]]) & !is.na(dat$ARM), , drop = FALSE]
   
@@ -1590,6 +1583,9 @@ logrank_one_endpoint <- function(dat, time.col, event.col, method, endpoint, not
 }
 
 run.logrank.tests <- function(ds) {
+  # Only the death-only log-rank comparator is retained.
+  # WR component is recurrent hospitalization count/burden, not a primary
+  # time-to-first-event endpoint.
   tab <- ds$table.output
   
   death.dat <- data.frame(
@@ -1599,25 +1595,13 @@ run.logrank.tests <- function(ds) {
     stringsAsFactors = FALSE
   )
   
-  comp <- compute.composite.endpoint.data(ds)
-  
-  rbind(
-    logrank_one_endpoint(
-      dat = death.dat,
-      time.col = "FUTIME",
-      event.col = "CNSR",
-      method = "Log-rank death endpoint",
-      endpoint = "death",
-      note = "Death / survival endpoint only; one-sided direction is treatment HR < 1."
-    ),
-    logrank_one_endpoint(
-      dat = comp,
-      time.col = "time",
-      event.col = "event",
-      method = "Log-rank composite endpoint",
-      endpoint = "composite",
-      note = "Time to earliest of death or first hospitalization; one-sided direction is treatment HR < 1."
-    )
+  logrank_one_endpoint(
+    dat = death.dat,
+    time.col = "FUTIME",
+    event.col = "CNSR",
+    method = "Log-rank death endpoint",
+    endpoint = "death",
+    note = "Death / survival endpoint only; one-sided direction is treatment HR < 1."
   )
 }
 
@@ -1692,8 +1676,7 @@ extract.method.rows.final <- function(scenario.row,
   )
   
   lr.map <- c(
-    "Log-rank death endpoint" = "logrank_death",
-    "Log-rank composite endpoint" = "logrank_composite"
+    "Log-rank death endpoint" = "logrank_death"
   )
   
   lr.rows <- data.frame()
@@ -1869,7 +1852,7 @@ extract.pointwise.rows.final <- function(scenario.row, sim.index, test.out) {
 }
 
 
-# Run one simulation
+# Run one simulation/trial
 run.one.simulation.final <- function(scenario.row,
                                      sim.index,
                                      seed,
@@ -2216,7 +2199,7 @@ run.all.scenarios.final <- function(scenario.grid = build.final.15.scenario.grid
       "max WR, selection repeated inside each permutation",
       "max abs(log(WR)), with the same selection repeated inside each permutation",
       "treatment-label permutation",
-      "one-sided and two-sided for death and composite endpoints",
+      "one-sided and two-sided for death endpoint",
       "treatment benefit, Cox HR < 1 for ARM = 1",
       if (exists("P_GRID_EXPLORATORY")) paste0(sprintf("%.2f", min(P_GRID_EXPLORATORY)), " to ", sprintf("%.2f", max(P_GRID_EXPLORATORY))) else NA_character_,
       if (exists("P_GRID_PRIMARY")) paste0(sprintf("%.2f", min(P_GRID_PRIMARY)), " to ", sprintf("%.2f", max(P_GRID_PRIMARY))) else NA_character_,
@@ -2236,7 +2219,7 @@ run.all.scenarios.final <- function(scenario.grid = build.final.15.scenario.grid
   cat("NSIM =", nsim, "; B_PERM =", B, "; scenarios =", nrow(scenario.grid), "\n")
   cat("WR outputs: one-sided and two-sided\n")
   cat("WR two-sided statistic: abs(log(WR)); adaptive rule: max abs(log(WR)) repeated inside each permutation\n")
-  cat("Log-rank outputs: one-sided benefit and two-sided\n")
+  cat("Log-rank death output: one-sided benefit and two-sided\n")
   
   all.trial <- data.frame()
   all.method <- data.frame()
@@ -2283,6 +2266,8 @@ run.all.scenarios.final <- function(scenario.grid = build.final.15.scenario.grid
   )
 }
 
+
+#run.all.scenarios
 run.all.scenarios <- function(scenario.grid = build.final.15.scenario.grid(),
                               nsim = NSIM,
                               B = B_PERM,
@@ -2300,20 +2285,8 @@ run.all.scenarios <- function(scenario.grid = build.final.15.scenario.grid(),
 
 
 
-
-# output:
-# scenario-level raw/method/pointwise/power/average/pathway files
-# global old-style aliases such as GLOBAL_all_scenarios_* files
-# selected example_sim1 tables and simple figures
-# GLOBAL_full_results_bundle.rds
-# update:
-# 15 scenarios
-# NSIM = 1000, B_PERM = 500
-# WR one-sided and two-sided outputs
-# log-rank one-sided and two-sided outputs
-
-
-OUTDIR <- "simulation_WR_15scenarios_WR_and_LR_one_two_sided_abs_log_1000x500_FULL_OUTPUT_PARALLEL_SAFE"
+# full output
+OUTDIR <- "simulation_WR_15scenarios_WR_and_LRdeath_one_two_sided_abs_log_1000x500_FULL_OUTPUT_PARALLEL_SAFE"
 NSIM <- 1000L
 B_PERM <- 500L
 ALPHA <- 0.05
@@ -2322,9 +2295,8 @@ RESUME_IF_EXISTS <- TRUE
 SAVE_EXAMPLE_PLOTS <- TRUE
 VERBOSE <- TRUE
 
-# ---------------------------------------------------------------------
+
 # Small output helpers
-# ---------------------------------------------------------------------
 safe_write_csv <- function(x, file) {
   dir.create(dirname(file), recursive = TRUE, showWarnings = FALSE)
   utils::write.csv(x, file, row.names = FALSE)
@@ -2360,7 +2332,7 @@ finite_or_na <- function(x) {
 }
 
 
-# Example-trial tables, restored.
+# Example-trial tables
 make.example.weighted.curve <- function(test.out, order = c("death_first", "hospitalization_first")) {
   order <- match.arg(order)
   d <- if (order == "death_first") test.out$observed$weighted.death.first else test.out$observed$weighted.hosp.first
@@ -2421,8 +2393,7 @@ make.example.pvalue.table <- function(test.out, logrank.results = NULL) {
   
   lr <- data.frame()
   if (!is.null(logrank.results) && nrow(logrank.results) > 0) {
-    map <- c("Log-rank death endpoint" = "logrank_death",
-             "Log-rank composite endpoint" = "logrank_composite")
+    map <- c("Log-rank death endpoint" = "logrank_death")
     mids <- unname(map[logrank.results$method])
     lr <- data.frame(
       method = mids,
@@ -2568,7 +2539,7 @@ plot.example.threshold.curve <- function(test.out, outdir, prefix) {
 
 plot.example.pvalues <- function(pvalue.table, outdir, prefix) {
   if (is.null(pvalue.table) || nrow(pvalue.table) == 0) return(invisible(NULL))
-  key <- pvalue.table[pvalue.table$method %in% c("ordinaryWR", "traditionalWR_hosp_first", "traditionalOrderWR", "maxWRp_primary", "maxOrderWR_primary", "maxWRt", "logrank_death", "logrank_composite"), , drop = FALSE]
+  key <- pvalue.table[pvalue.table$method %in% c("ordinaryWR", "traditionalWR_hosp_first", "traditionalOrderWR", "maxWRp_primary", "maxOrderWR_primary", "maxWRt", "logrank_death"), , drop = FALSE]
   if (nrow(key) == 0) return(invisible(NULL))
   ok <- safe_png_open(file.path(outdir, paste0(prefix, "_pvalue_key_methods.png")), width = 2600, height = 1500)
   if (!ok) return(invisible(NULL))
@@ -2635,7 +2606,7 @@ save.example.outputs.final <- function(ds, test.out, threshold.info, logrank.res
 }
 
 
-# Scenario-level summaries and compatibility names-
+# Scenario-level summaries 
 make.average.statistics.final <- function(method.rows, alpha = ALPHA) {
   # In the new long-format output, this is the method-level average table.
   # It intentionally contains both p-value power and descriptive averages.
@@ -2656,7 +2627,7 @@ make.pathway.method.comparison.final <- function(power.summary) {
 
 plot.scenario.power.final <- function(power.summary, scenario.outdir, scenario.id) {
   if (is.null(power.summary) || nrow(power.summary) == 0) return(invisible(NULL))
-  key.methods <- c("ordinaryWR", "traditionalWR_hosp_first", "traditionalOrderWR", "maxWRp_primary", "maxOrderWR_primary", "maxWRt", "logrank_death", "logrank_composite")
+  key.methods <- c("ordinaryWR", "traditionalWR_hosp_first", "traditionalOrderWR", "maxWRp_primary", "maxOrderWR_primary", "maxWRt", "logrank_death")
   d <- power.summary[power.summary$method %in% key.methods, , drop = FALSE]
   if (nrow(d) == 0) return(invisible(NULL))
   ok <- safe_png_open(file.path(scenario.outdir, paste0(scenario.id, "_power_comparison.png")), width = 2600, height = 1500)
@@ -2679,7 +2650,7 @@ plot.scenario.power.final <- function(power.summary, scenario.outdir, scenario.i
 
 plot.scenario.pvalues.final <- function(method.rows, scenario.outdir, scenario.id) {
   if (is.null(method.rows) || nrow(method.rows) == 0) return(invisible(NULL))
-  key.methods <- c("ordinaryWR", "traditionalWR_hosp_first", "traditionalOrderWR", "maxWRp_primary", "maxOrderWR_primary", "maxWRt", "logrank_death", "logrank_composite")
+  key.methods <- c("ordinaryWR", "traditionalWR_hosp_first", "traditionalOrderWR", "maxWRp_primary", "maxOrderWR_primary", "maxWRt", "logrank_death")
   d <- method.rows[method.rows$method %in% key.methods, , drop = FALSE]
   if (nrow(d) == 0) return(invisible(NULL))
   # Plot median p-values by method; this is light and works even for large nsim.
@@ -2752,7 +2723,7 @@ write.scenario.outputs.final <- function(scenario.id, scenario.outdir, trial.row
 }
 
 
-# Override run.one.simulation.final.
+# Override run all tables.
 run.one.simulation.final <- function(scenario.row,
                                      sim.index,
                                      seed,
@@ -2988,10 +2959,11 @@ run.scenario.final <- function(scenario.row,
   )
 }
 
-# Global plots and runner.
+
+# Global plots and runner
 plot.global.power.final <- function(power.table, outdir) {
   if (is.null(power.table) || nrow(power.table) == 0) return(invisible(NULL))
-  key.methods <- c("ordinaryWR", "traditionalWR_hosp_first", "traditionalOrderWR", "maxWRp_primary", "maxOrderWR_primary", "maxWRt", "logrank_death", "logrank_composite")
+  key.methods <- c("ordinaryWR", "traditionalWR_hosp_first", "traditionalOrderWR", "maxWRp_primary", "maxOrderWR_primary", "maxWRt", "logrank_death")
   d <- power.table[power.table$method %in% key.methods, , drop = FALSE]
   if (nrow(d) == 0) return(invisible(NULL))
   scenarios <- unique(d$scenario_id)
@@ -3027,7 +2999,7 @@ plot.global.power.final <- function(power.table, outdir) {
 plot.global.pvalue.final <- function(method.table, outdir) {
   if (is.null(method.table) || nrow(method.table) == 0) return(invisible(NULL))
   agg <- summarise.method.power.final(method.table, alpha = ALPHA)
-  key.methods <- c("ordinaryWR", "traditionalWR_hosp_first", "traditionalOrderWR", "maxWRp_primary", "maxOrderWR_primary", "maxWRt", "logrank_death", "logrank_composite")
+  key.methods <- c("ordinaryWR", "traditionalWR_hosp_first", "traditionalOrderWR", "maxWRp_primary", "maxOrderWR_primary", "maxWRt", "logrank_death")
   d <- agg[agg$method %in% key.methods, , drop = FALSE]
   if (nrow(d) == 0) return(invisible(NULL))
   ok <- safe_png_open(file.path(outdir, "GLOBAL_permutation_pvalue_comparison.png"), width = 2800, height = 1500)
@@ -3097,7 +3069,7 @@ run.all.scenarios.final <- function(scenario.grid = build.final.15.scenario.grid
       "max WR, selection repeated inside each permutation",
       "max abs(log(WR)), with the same selection repeated inside each permutation",
       "treatment-label permutation",
-      "one-sided and two-sided for death and composite endpoints",
+      "one-sided and two-sided for death endpoint",
       "treatment benefit, Cox HR < 1 for ARM = 1",
       if (exists("P_GRID_EXPLORATORY")) paste0(sprintf("%.2f", min(P_GRID_EXPLORATORY)), " to ", sprintf("%.2f", max(P_GRID_EXPLORATORY))) else NA_character_,
       if (exists("P_GRID_PRIMARY")) paste0(sprintf("%.2f", min(P_GRID_PRIMARY)), " to ", sprintf("%.2f", max(P_GRID_PRIMARY))) else NA_character_,
@@ -3114,7 +3086,7 @@ run.all.scenarios.final <- function(scenario.grid = build.final.15.scenario.grid
   cat("NSIM =", nsim, "; B_PERM =", B, "; scenarios =", nrow(scenario.grid), "\n")
   cat("WR outputs: one-sided and two-sided\n")
   cat("WR two-sided statistic: abs(log(WR)); adaptive rule: max abs(log(WR)) repeated inside each permutation\n")
-  cat("Log-rank outputs: one-sided benefit and two-sided\n")
+  cat("Log-rank death output: one-sided benefit and two-sided\n")
   
   all.trial <- data.frame()
   all.method <- data.frame()
@@ -3257,9 +3229,7 @@ run.all.scenarios <- function(scenario.grid = build.final.15.scenario.grid(),
 }
 
 
-# Trial-level parallelization only.
-# at most 4 worker R sessions, with each worker limited 
-
+# safe settings
 get_integer_env_final <- function(name, default) {
   val <- Sys.getenv(name, unset = NA_character_)
   if (is.na(val) || !nzchar(val)) return(as.integer(default))
@@ -3475,6 +3445,9 @@ List fast_wr_core_revised_cpp(NumericVector futime,
 )---"
 
 parallel_export_names_final <- function() {
+  # Never export the compiled Rcpp external pointer from the master session;
+  # it is not valid inside PSOCK workers on Windows. Each worker compiles its
+  # own local copy from CPP_FAST_WR_CODE_FOR_PARALLEL.
   exclude <- c(
     "fast_wr_core_revised_cpp", "out", "cl", "cluster", ".Random.seed",
     "scenario.grid.current"
@@ -3587,9 +3560,7 @@ read_existing_or_checkpoint_final <- function(rds.file, csv.file) {
   data.frame()
 }
 
-# Override scenario runner: same outputs as before, but pending trials are run
-# in parallel batches. Seeds are unchanged, so results are reproducible and do
-# not depend on worker scheduling.
+# Override scenario runner
 run.scenario.final <- function(scenario.row,
                                nsim = NSIM,
                                B = B_PERM,
@@ -3757,9 +3728,7 @@ write.parallel.settings.final <- function(outdir = OUTDIR) {
   invisible(x)
 }
 
-# Override run.all.scenarios.final only to write the extra parallel-settings CSV
-# before using the original full-output global runner body above through the
-# existing function name. We preserve all global/scenario-level outputs.
+
 run.all.scenarios.final.original.parallel_safe <- run.all.scenarios.final
 run.all.scenarios.final <- function(scenario.grid = build.final.15.scenario.grid(),
                                     nsim = NSIM,
@@ -3783,7 +3752,8 @@ cat("PARALLEL_TRIALS =", PARALLEL_TRIALS, "; N_WORKERS =", N_WORKERS,
     "; physical cores detected =", physical_cores_final, "\n")
 cat("Each worker is limited to 1 BLAS/OpenMP thread. Set N_WORKERS=1 or PARALLEL_TRIALS=FALSE to run serially.\n")
 
-# run block
+
+# Final standalone run block
 if (!exists("RUN_FULL_SIMULATION")) {
   RUN_FULL_SIMULATION <- !identical(Sys.getenv("RUN_FULL_SIMULATION"), "FALSE")
 }
@@ -3802,262 +3772,995 @@ if (isTRUE(RUN_FULL_SIMULATION)) {
   message("RUN_FULL_SIMULATION is FALSE: functions were loaded, but the full simulation was not started.")
 }
 
-if (!exists("OUTDIR")) {
-  OUTDIR <- "simulation_WR_15scenarios_WR_and_LR_one_two_sided_abs_log_1000x500_FULL_OUTPUT_PARALLEL_SAFE"
-}
-ALPHA <- if (exists("ALPHA")) ALPHA else 0.05
 
-key.methods <- c(
-  "ordinaryWR", "traditionalWR_hosp_first", "traditionalOrderWR",
-  "maxWRp_primary", "maxOrderWR_primary", "maxWRt",
-  "logrank_death", "logrank_composite"
+
+
+
+# User settings
+WR_ORIGINAL_DIR <- ""
+WO_ORIGINAL_DIR <- ""
+OUTDIR_NEWMAX <- file.path(WO_ORIGINAL_DIR, "NEW_SIMULATIONS_two_missing_max_stats_WR_WO")
+
+dir.create(OUTDIR_NEWMAX, recursive = TRUE, showWarnings = FALSE)
+
+NSIM_NEWMAX <- 1000L
+B_PERM_NEWMAX <- 500L
+MASTER_SEED_NEWMAX <- 2026L
+ALPHA_NEWMAX <- 0.05
+
+# By monotonicity in p, for p in [0.50, 1.00] only endpoint weights are needed.
+P_GRID_NEWMAX <- c(0.50, 1.00)
+
+CHECKPOINT_EVERY_NEWMAX <- 25L
+RESUME_NEWMAX_IF_EXISTS <- TRUE
+SAVE_EXAMPLE_NEWMAX_OBJECT <- TRUE
+
+# Parallel settings. If workers fail, the code automatically falls back to serial.
+PARALLEL_NEWMAX <- TRUE
+SAFE_WORKER_CAP_NEWMAX <- 6L
+physical_cores_newmax <- tryCatch(parallel::detectCores(logical = FALSE), error = function(e) 2L)
+if (is.na(physical_cores_newmax) || physical_cores_newmax < 1L) physical_cores_newmax <- 2L
+N_WORKERS_NEWMAX <- min(max(1L, physical_cores_newmax - 1L), SAFE_WORKER_CAP_NEWMAX)
+
+Sys.setenv(
+  OMP_NUM_THREADS = "1",
+  OPENBLAS_NUM_THREADS = "1",
+  MKL_NUM_THREADS = "1",
+  VECLIB_MAXIMUM_THREADS = "1",
+  NUMEXPR_NUM_THREADS = "1"
 )
 
-short_method_label <- function(method) {
+# C++ core
+# This core separates first-tier and second-tier win/loss counts after applying
+# the death/survival threshold. It supports both death-first and hospitalization-
+# first ordering
+CPP_THRESHOLD_COMBO_CODE <- r"---(
+// [[Rcpp::plugins(cpp11)]]
+#include <Rcpp.h>
+#include <vector>
+#include <cmath>
+using namespace Rcpp;
+
+int count_hosp_until_combo_cpp(const NumericVector& hosp_times,
+                               const IntegerVector& hosp_start,
+                               const IntegerVector& hosp_len,
+                               int idx,
+                               double t) {
+  int len = hosp_len[idx];
+  if (len <= 0) return 0;
+  int start = hosp_start[idx];
+  int lo = 0;
+  int hi = len;
+  while (lo < hi) {
+    int mid = lo + (hi - lo) / 2;
+    if (hosp_times[start + mid] <= t) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  return lo;
+}
+
+// [[Rcpp::export]]
+List fast_threshold_combo_core_cpp(NumericVector futime,
+                                   IntegerVector cnsr,
+                                   IntegerVector arm,
+                                   NumericVector hosp_times,
+                                   IntegerVector hosp_start,
+                                   IntegerVector hosp_len,
+                                   NumericVector t_grid) {
+  int n = futime.size();
+  std::vector<int> trt;
+  std::vector<int> ctrl;
+  trt.reserve(n);
+  ctrl.reserve(n);
+
+  for (int i = 0; i < n; ++i) {
+    if (arm[i] == 1) trt.push_back(i);
+    if (arm[i] == 0) ctrl.push_back(i);
+  }
+
+  int n_trt = trt.size();
+  int n_ctrl = ctrl.size();
+  double total_pairs = static_cast<double>(n_trt) * static_cast<double>(n_ctrl);
+  if (total_pairs <= 0) stop("Need at least one treatment patient and one control patient.");
+
+  int K = t_grid.size();
+
+  NumericVector df_first_win(K), df_first_loss(K), df_second_win(K), df_second_loss(K);
+  NumericVector hf_first_win(K), hf_first_loss(K), hf_second_win(K), hf_second_loss(K);
+
+  for (int ii = 0; ii < n_trt; ++ii) {
+    int ti = trt[ii];
+    for (int jj = 0; jj < n_ctrl; ++jj) {
+      int cj = ctrl[jj];
+
+      int death_sign = 0;
+      double ft = futime[ti];
+      double fc = futime[cj];
+      int dt = cnsr[ti];
+      int dc = cnsr[cj];
+
+      // Same censoring comparison rule as the existing WR simulation.
+      if (dt == 1 && dc == 1) {
+        if (ft > fc) death_sign = 1;
+        else if (ft < fc) death_sign = -1;
+      } else if (dt == 0 && dc == 1 && ft >= fc) {
+        death_sign = 1;
+      } else if (dt == 1 && dc == 0 && fc >= ft) {
+        death_sign = -1;
+      }
+
+      double common_t = ft < fc ? ft : fc;
+      int ht = count_hosp_until_combo_cpp(hosp_times, hosp_start, hosp_len, ti, common_t);
+      int hc = count_hosp_until_combo_cpp(hosp_times, hosp_start, hosp_len, cj, common_t);
+      int hosp_sign = 0;
+      if (ht < hc) hosp_sign = 1;
+      else if (ht > hc) hosp_sign = -1;
+
+      for (int kk = 0; kk < K; ++kk) {
+        int death_thr_sign = 0;
+        if (death_sign != 0 && std::fabs(ft - fc) >= t_grid[kk]) {
+          death_thr_sign = death_sign;
+        }
+
+        // Death-first with threshold on death/survival.
+        if (death_thr_sign > 0) {
+          df_first_win[kk] += 1.0;
+        } else if (death_thr_sign < 0) {
+          df_first_loss[kk] += 1.0;
+        } else if (hosp_sign > 0) {
+          df_second_win[kk] += 1.0;
+        } else if (hosp_sign < 0) {
+          df_second_loss[kk] += 1.0;
+        }
+
+        // Hospitalization-first; death/survival threshold is used only if
+        // hospitalization count does not separate the pair.
+        if (hosp_sign > 0) {
+          hf_first_win[kk] += 1.0;
+        } else if (hosp_sign < 0) {
+          hf_first_loss[kk] += 1.0;
+        } else if (death_thr_sign > 0) {
+          hf_second_win[kk] += 1.0;
+        } else if (death_thr_sign < 0) {
+          hf_second_loss[kk] += 1.0;
+        }
+      }
+    }
+  }
+
+  return List::create(
+    Named("total_pairs") = total_pairs,
+    Named("t_grid") = t_grid,
+    Named("df_first_win") = df_first_win,
+    Named("df_first_loss") = df_first_loss,
+    Named("df_second_win") = df_second_win,
+    Named("df_second_loss") = df_second_loss,
+    Named("hf_first_win") = hf_first_win,
+    Named("hf_first_loss") = hf_first_loss,
+    Named("hf_second_win") = hf_second_win,
+    Named("hf_second_loss") = hf_second_loss
+  );
+}
+)---"
+
+Rcpp::sourceCpp(code = CPP_THRESHOLD_COMBO_CODE)
+
+#Helpers
+safe_ratio_eps_newmax <- function(win_score, loss_score, total_pairs, eps = EPS_WR) {
+  ((win_score / total_pairs) + eps) / ((loss_score / total_pairs) + eps)
+}
+
+wo_safe_ratio_newmax <- function(win_pairs, loss_pairs, tie_count) {
+  num <- as.numeric(win_pairs) + 0.5 * as.numeric(tie_count)
+  den <- as.numeric(loss_pairs) + 0.5 * as.numeric(tie_count)
+  out <- rep(NA_real_, length(num))
+  ok <- is.finite(num) & is.finite(den) & den > 0
+  out[ok] <- num[ok] / den[ok]
+  out[is.finite(num) & is.finite(den) & den == 0 & num > 0] <- Inf
+  out
+}
+
+log_ratio_newmax <- function(x) {
+  x <- as.numeric(x)
+  out <- rep(NA_real_, length(x))
+  ok <- is.finite(x) & x > 0
+  out[ok] <- log(x[ok])
+  out[is.infinite(x) & x > 0] <- Inf
+  out
+}
+
+abslog_ratio_newmax <- function(x) abs(log_ratio_newmax(x))
+
+right_tail_perm_p_newmax <- function(perm.stat, obs.stat) {
+  perm.stat <- as.numeric(perm.stat)
+  obs.stat <- as.numeric(obs.stat)[1]
+  ok <- is.finite(perm.stat) | is.infinite(perm.stat)
+  if (((!is.finite(obs.stat)) && (!is.infinite(obs.stat))) || sum(ok) == 0) return(NA_real_)
+  (1 + sum(perm.stat[ok] >= obs.stat)) / (sum(ok) + 1)
+}
+
+newmax_method_label <- function(method, measure = NULL) {
   map <- c(
-    ordinaryWR = "WR-D\np=0.50",
-    traditionalWR_hosp_first = "WR-H\np=0.50",
-    traditionalOrderWR = "Order WR\np=0.50",
-    maxWRp_primary = "Max WR(p)\nD-first",
-    maxWRp_low = "Max WR(p)\np<0.50",
-    maxWRp_full = "Max WR(p)\nfull grid",
-    maxOrderWR_primary = "Max order\nWR(p)",
-    maxOrderWR_full = "Max order\nfull grid",
-    maxWRt = "Max WR(t)",
-    logrank_death = "LR death",
-    logrank_composite = "LR composite"
+    M_wt_thresh_0.5 = "Weight- and threshold-selected",
+    M_ord_thresh = "Order- and threshold-selected"
   )
   out <- as.character(method)
   hit <- out %in% names(map)
   out[hit] <- unname(map[out[hit]])
+  if (!is.null(measure)) out <- paste0(out, " ", measure)
   out
 }
 
-scenario_short_label <- function(x) {
-  x <- as.character(x)
-  map <- c(
-    S01_equivalence_equal_arms = "S01 Equal",
-    S02_similarity_small_benefit_both = "S02 Similar +",
-    S03_similarity_small_harm_both = "S03 Similar -",
-    S04_superiority_moderate_better_both = "S04 Sup mod",
-    S05_superiority_strong_better_both = "S05 Sup strong",
-    S06_inferiority_moderate_worse_both = "S06 Inf mod",
-    S07_inferiority_strong_worse_both = "S07 Inf strong",
-    S08_death_benefit_only = "S08 Death +",
-    S09_hosp_benefit_only = "S09 Hosp +",
-    S10_death_benefit_hosp_harm = "S10 Death + / Hosp -",
-    S11_death_harm_hosp_benefit = "S11 Death - / Hosp +",
-    S12_high_random_censoring_superiority = "S12 High censor",
-    S13_low_censoring_long_followup_superiority = "S13 Long FU",
-    S14_strong_hosp_benefit_only = "S14 Strong hosp +",
-    S15_weak_death_benefit_strong_hosp_benefit = "S15 Weak death + strong hosp +"
+#Candidate construction
+make_threshold_combo_candidates <- function(ds,
+                                            p.grid = P_GRID_NEWMAX,
+                                            t.grid = CLINICAL_T_MONTHS / 12,
+                                            eps = EPS_WR) {
+  ds <- prepare.ds.fast(ds)
+  tab <- ds$table.output
+  
+  core <- fast_threshold_combo_core_cpp(
+    futime = as.numeric(tab$FUTIME),
+    cnsr = as.integer(tab$CNSR),
+    arm = as.integer(tab$ARM),
+    hosp_times = as.numeric(ds$hosp.flat),
+    hosp_start = as.integer(ds$hosp.start),
+    hosp_len = as.integer(ds$hosp.len),
+    t_grid = as.numeric(t.grid)
   )
-  hit <- x %in% names(map)
-  x[hit] <- unname(map[x[hit]])
-  x
-}
-
-title_short <- function(x) {
-  x <- as.character(x)[1]
-  sx <- if (grepl("^S[0-9]{2}", x)) sub("^(S[0-9]{2}).*$", "\\1", x) else x
-  sim <- if (grepl("example_sim[0-9]+", x)) sub(".*(example_sim[0-9]+).*", "\\1", x) else ""
-  if (grepl("^S[0-9]{2}", x) && nzchar(sim)) return(paste(sx, sim))
-  if (grepl("^S[0-9]{2}", x)) return(sx)
-  x
-}
-
-finite_or_na <- function(x) {
-  x <- as.numeric(x)
-  x[!is.finite(x)] <- NA_real_
-  x
-}
-
-read_csv_if_exists <- function(file) {
-  if (length(file) == 0 || is.na(file) || !file.exists(file)) return(NULL)
-  tryCatch(utils::read.csv(file, stringsAsFactors = FALSE, check.names = FALSE), error = function(e) NULL)
-}
-
-barplot_png <- function(file, mat, ylab, main, legend = TRUE,
-                        width = 3200, height = 1700, res = 160,
-                        las = 1, mar = c(6, 5, 4, 1), legend.cex = 0.8,
-                        cex.names = 0.9) {
-  dir.create(dirname(file), recursive = TRUE, showWarnings = FALSE)
-  grDevices::png(file, width = width, height = height, res = res)
-  old <- graphics::par(no.readonly = TRUE)
-  on.exit({ graphics::par(old); grDevices::dev.off() }, add = TRUE)
-  graphics::par(mar = mar)
-  graphics::barplot(mat, beside = TRUE, las = las, ylim = c(0, 1),
-                    ylab = ylab, main = main,
-                    legend.text = if (legend) TRUE else NULL,
-                    args.legend = if (legend) list(x = "topright", bty = "n", cex = legend.cex) else NULL,
-                    cex.names = cex.names)
-  graphics::abline(h = ALPHA, lty = 2)
-  invisible(file)
-}
-
-summarise_method_rows <- function(d) {
-  if (is.null(d) || nrow(d) == 0) return(data.frame())
-  nums <- c(
-    "permutation_p_value_one_sided", "permutation_p_value_two_sided",
-    "fixed_parameter_p_value_one_sided", "fixed_parameter_p_value_two_sided",
-    "rejected_one_sided", "rejected_two_sided",
-    "selected_p_one_sided", "selected_p_two_sided"
-  )
-  for (nm in nums) if (!nm %in% names(d)) d[[nm]] <- NA_real_
-  d$rejected_one_sided <- as.numeric(d$rejected_one_sided)
-  d$rejected_two_sided <- as.numeric(d$rejected_two_sided)
-  split_keys <- interaction(d$scenario_id, d$method, drop = TRUE, lex.order = TRUE)
-  pieces <- lapply(split(d, split_keys), function(x) {
-    data.frame(
-      scenario_id = x$scenario_id[1],
-      scenario_label = if ("scenario_label" %in% names(x)) x$scenario_label[1] else scenario_short_label(x$scenario_id[1]),
-      method = x$method[1],
-      method_label = short_method_label(x$method[1]),
-      statistic_type = if ("statistic_type" %in% names(x)) x$statistic_type[1] else NA_character_,
-      median_p_one_sided = suppressWarnings(stats::median(finite_or_na(x$permutation_p_value_one_sided), na.rm = TRUE)),
-      median_p_two_sided = suppressWarnings(stats::median(finite_or_na(x$permutation_p_value_two_sided), na.rm = TRUE)),
-      mean_fixed_p_one_sided = suppressWarnings(mean(finite_or_na(x$fixed_parameter_p_value_one_sided), na.rm = TRUE)),
-      mean_fixed_p_two_sided = suppressWarnings(mean(finite_or_na(x$fixed_parameter_p_value_two_sided), na.rm = TRUE)),
-      rejection_proportion_one_sided = suppressWarnings(mean(finite_or_na(x$rejected_one_sided), na.rm = TRUE)),
-      rejection_proportion_two_sided = suppressWarnings(mean(finite_or_na(x$rejected_two_sided), na.rm = TRUE)),
-      mean_selected_p_one_sided = suppressWarnings(mean(finite_or_na(x$selected_p_one_sided), na.rm = TRUE)),
-      mean_selected_p_two_sided = suppressWarnings(mean(finite_or_na(x$selected_p_two_sided), na.rm = TRUE)),
-      stringsAsFactors = FALSE
-    )
-  })
-  out <- do.call(rbind, pieces)
+  
+  total.pairs <- as.numeric(core$total_pairs)
+  t.vec <- as.numeric(core$t_grid)
+  p.vec <- as.numeric(p.grid)
+  
+  rows <- list()
+  rr <- 0L
+  
+  for (ord in c("death_first", "hospitalization_first")) {
+    if (ord == "death_first") {
+      first.win <- as.numeric(core$df_first_win)
+      first.loss <- as.numeric(core$df_first_loss)
+      second.win <- as.numeric(core$df_second_win)
+      second.loss <- as.numeric(core$df_second_loss)
+    } else {
+      first.win <- as.numeric(core$hf_first_win)
+      first.loss <- as.numeric(core$hf_first_loss)
+      second.win <- as.numeric(core$hf_second_win)
+      second.loss <- as.numeric(core$hf_second_loss)
+    }
+    
+    for (kk in seq_along(t.vec)) {
+      for (pp in seq_along(p.vec)) {
+        p <- p.vec[pp]
+        
+        win.score <- p * first.win[kk] + (1 - p) * second.win[kk]
+        loss.score <- p * first.loss[kk] + (1 - p) * second.loss[kk]
+        
+        # Tie reporting follows the effective pair classification for the 
+        #selected endpoint weight. For p=1 only first-tier pairs enter; for
+        #p<1 both first and second tiers enter.
+        if (abs(p - 1) < 1e-12) {
+          win.pairs <- first.win[kk]
+          loss.pairs <- first.loss[kk]
+        } else {
+          win.pairs <- first.win[kk] + second.win[kk]
+          loss.pairs <- first.loss[kk] + second.loss[kk]
+        }
+        tie.count <- total.pairs - win.pairs - loss.pairs
+        
+        rr <- rr + 1L
+        rows[[rr]] <- data.frame(
+          order = ord,
+          p = p,
+          t = t.vec[kk],
+          t_months = t.vec[kk] * 12,
+          first_win = first.win[kk],
+          first_loss = first.loss[kk],
+          second_win = second.win[kk],
+          second_loss = second.loss[kk],
+          win_score = win.score,
+          loss_score = loss.score,
+          win_pairs = win.pairs,
+          loss_pairs = loss.pairs,
+          tie_count = tie.count,
+          tie_proportion = tie.count / total.pairs,
+          WR = safe_ratio_eps_newmax(win.score, loss.score, total.pairs, eps = eps),
+          WO = wo_safe_ratio_newmax(win.pairs, loss.pairs, tie.count),
+          total_pairs = total.pairs,
+          stringsAsFactors = FALSE
+        )
+      }
+    }
+  }
+  
+  out <- do.call(rbind, rows)
+  out$log_WR <- log_ratio_newmax(out$WR)
+  out$abs_log_WR <- abslog_ratio_newmax(out$WR)
+  out$log_WO <- log_ratio_newmax(out$WO)
+  out$abs_log_WO <- abslog_ratio_newmax(out$WO)
   rownames(out) <- NULL
   out
 }
 
-plot_example_pvalues <- function(pvalue.file) {
-  d <- read_csv_if_exists(pvalue.file)
-  if (is.null(d) || nrow(d) == 0 || !"method" %in% names(d)) return(invisible(FALSE))
-  d <- d[d$method %in% key.methods, , drop = FALSE]
-  if (nrow(d) == 0) return(invisible(FALSE))
-  one <- if ("max_permutation_p_value_one_sided" %in% names(d)) d$max_permutation_p_value_one_sided else d$permutation_p_value_one_sided
-  two <- if ("max_permutation_p_value_two_sided" %in% names(d)) d$max_permutation_p_value_two_sided else d$permutation_p_value_two_sided
-  mat <- rbind(one_sided = finite_or_na(one), two_sided = finite_or_na(two))
-  colnames(mat) <- short_method_label(d$method)
-  prefix <- sub("_pvalue_table\\.csv$", "", basename(pvalue.file))
-  out <- file.path(dirname(pvalue.file), paste0(prefix, "_pvalue_key_methods.png"))
-  barplot_png(out, mat, ylab = "p-value", main = paste0(title_short(prefix), ": one- vs two-sided p-values"))
-  invisible(TRUE)
+subset_for_newmax_method <- function(candidates, method) {
+  if (method == "M_wt_thresh_0.5") {
+    return(candidates[candidates$order == "death_first" &
+                        candidates$p >= 0.50 & candidates$p <= 1.00, , drop = FALSE])
+  }
+  if (method == "M_ord_thresh") {
+    return(candidates[abs(candidates$p - 0.50) < 1e-10 &
+                        candidates$order %in% c("death_first", "hospitalization_first"), , drop = FALSE])
+  }
+  candidates[FALSE, , drop = FALSE]
 }
 
-plot_scenario_from_tables <- function(scen.dir) {
-  pwr <- read_csv_if_exists(file.path(scen.dir, "power_summary.csv"))
-  raw <- read_csv_if_exists(file.path(scen.dir, "method_trial_results.csv"))
-  if (is.null(raw)) raw <- read_csv_if_exists(list.files(scen.dir, pattern = "_raw_results\\.csv$", full.names = TRUE)[1])
-  sid <- sub("^[0-9]+_", "", basename(scen.dir))
+select_one_newmax <- function(candidates,
+                              method,
+                              measure = c("WR", "WO"),
+                              side = c("one", "two")) {
+  measure <- match.arg(measure)
+  side <- match.arg(side)
+  d <- subset_for_newmax_method(candidates, method)
+  if (nrow(d) == 0) return(data.frame())
   
-  if (!is.null(pwr) && nrow(pwr) > 0 && "method" %in% names(pwr)) {
-    d <- pwr[pwr$method %in% key.methods, , drop = FALSE]
-    if (nrow(d) > 0) {
-      mat <- rbind(one_sided = finite_or_na(d$rejection_proportion_one_sided),
-                   two_sided = finite_or_na(d$rejection_proportion_two_sided))
-      colnames(mat) <- short_method_label(d$method)
-      barplot_png(file.path(scen.dir, paste0(sid, "_power_comparison.png")), mat,
-                  ylab = paste0("Rejection proportion, alpha = ", ALPHA),
-                  main = paste0(title_short(sid), ": one- vs two-sided power"))
-    }
+  if (measure == "WR") {
+    score <- if (side == "one") d$WR else d$abs_log_WR
+    value <- d$WR
+    log.value <- d$log_WR
+    abs.log.value <- d$abs_log_WR
+  } else {
+    score <- if (side == "one") d$WO else d$abs_log_WO
+    value <- d$WO
+    log.value <- d$log_WO
+    abs.log.value <- d$abs_log_WO
   }
   
-  if (!is.null(raw) && nrow(raw) > 0 && "method" %in% names(raw)) {
-    agg <- summarise_method_rows(raw)
-    agg <- agg[agg$method %in% key.methods, , drop = FALSE]
-    if (nrow(agg) > 0) {
-      mat <- rbind(one_sided = finite_or_na(agg$median_p_one_sided),
-                   two_sided = finite_or_na(agg$median_p_two_sided))
-      colnames(mat) <- short_method_label(agg$method)
-      barplot_png(file.path(scen.dir, paste0(sid, "_permutation_pvalue_comparison.png")), mat,
-                  ylab = "Median permutation/log-rank p-value",
-                  main = paste0(title_short(sid), ": median p-values"))
+  score[!is.finite(score)] <- -Inf
+  if (length(score) == 0 || all(score == -Inf)) return(data.frame())
+  k <- which.max(score)
+  z <- d[k, , drop = FALSE]
+  
+  data.frame(
+    measure = measure,
+    method = method,
+    method_label = newmax_method_label(method, measure),
+    side = side,
+    selected_order = as.character(z$order[1]),
+    selected_p = as.numeric(z$p[1]),
+    selected_t_months = as.numeric(z$t_months[1]),
+    selected_WR = as.numeric(z$WR[1]),
+    selected_WO = as.numeric(z$WO[1]),
+    selected_value = as.numeric(value[k]),
+    selected_statistic = as.numeric(score[k]),
+    selected_log_value = as.numeric(log.value[k]),
+    selected_abs_log_value = as.numeric(abs.log.value[k]),
+    selected_direction = ifelse(is.finite(log.value[k]) && log.value[k] >= 0, "upper_benefit",
+                                ifelse(is.finite(log.value[k]) && log.value[k] < 0, "lower_harm", NA_character_)),
+    win_pairs = as.numeric(z$win_pairs[1]),
+    loss_pairs = as.numeric(z$loss_pairs[1]),
+    tie_count = as.numeric(z$tie_count[1]),
+    tie_proportion = as.numeric(z$tie_proportion[1]),
+    total_pairs = as.numeric(z$total_pairs[1]),
+    stringsAsFactors = FALSE
+  )
+}
+
+select_newmax_rows <- function(candidates, measure = c("WR", "WO"), side = c("one", "two")) {
+  measure <- match.arg(measure)
+  side <- match.arg(side)
+  methods <- c("M_wt_thresh_0.5", "M_ord_thresh")
+  out <- do.call(rbind, lapply(methods, function(m) select_one_newmax(candidates, m, measure, side)))
+  rownames(out) <- NULL
+  out
+}
+
+# Permutation test
+newmax.perm.test.one.trial <- function(ds,
+                                       B = B_PERM_NEWMAX,
+                                       seed = MASTER_SEED_NEWMAX,
+                                       p.grid = P_GRID_NEWMAX,
+                                       t.grid = CLINICAL_T_MONTHS / 12,
+                                       verbose = FALSE) {
+  ds <- prepare.ds.fast(ds)
+  set.seed(seed)
+  
+  obs.cand <- make_threshold_combo_candidates(ds, p.grid = p.grid, t.grid = t.grid)
+  
+  obs.rows <- rbind(
+    select_newmax_rows(obs.cand, "WR", "one"),
+    select_newmax_rows(obs.cand, "WR", "two"),
+    select_newmax_rows(obs.cand, "WO", "one"),
+    select_newmax_rows(obs.cand, "WO", "two")
+  )
+  
+  obs.rows$key <- paste(obs.rows$measure, obs.rows$method, obs.rows$side, sep = "__")
+  keys <- obs.rows$key
+  T.obs <- obs.rows$selected_statistic
+  names(T.obs) <- keys
+  
+  perm.stat <- matrix(NA_real_, nrow = B, ncol = length(keys), dimnames = list(NULL, keys))
+  perm.tie.count <- matrix(NA_real_, nrow = B, ncol = length(keys), dimnames = list(NULL, keys))
+  perm.tie.pr <- matrix(NA_real_, nrow = B, ncol = length(keys), dimnames = list(NULL, keys))
+  
+  perm.seeds <- seed + seq_len(B) * 1009L
+  
+  for (b in seq_len(B)) {
+    if (isTRUE(verbose) && (b == 1 || b == B || b %% 50 == 0)) {
+      cat("    permutation", b, "of", B, "\n")
+    }
+    
+    set.seed(perm.seeds[b])
+    ds.b <- ds
+    ds.b$table.output$ARM <- sample(ds$table.output$ARM, replace = FALSE)
+    
+    cand.b <- make_threshold_combo_candidates(ds.b, p.grid = p.grid, t.grid = t.grid)
+    rows.b <- rbind(
+      select_newmax_rows(cand.b, "WR", "one"),
+      select_newmax_rows(cand.b, "WR", "two"),
+      select_newmax_rows(cand.b, "WO", "one"),
+      select_newmax_rows(cand.b, "WO", "two")
+    )
+    rows.b$key <- paste(rows.b$measure, rows.b$method, rows.b$side, sep = "__")
+    rows.b <- rows.b[match(keys, rows.b$key), , drop = FALSE]
+    
+    perm.stat[b, ] <- rows.b$selected_statistic
+    perm.tie.count[b, ] <- rows.b$tie_count
+    perm.tie.pr[b, ] <- rows.b$tie_proportion
+  }
+  
+  p.values <- sapply(keys, function(k) right_tail_perm_p_newmax(perm.stat[, k], T.obs[k]))
+  
+  obs.rows$permutation_p_value <- as.numeric(p.values[obs.rows$key])
+  obs.rows$mean_perm_tie_count <- sapply(obs.rows$key, function(k) safe_mean(perm.tie.count[, k]))
+  obs.rows$mean_perm_tie_proportion <- sapply(obs.rows$key, function(k) safe_mean(perm.tie.pr[, k]))
+  obs.rows$B <- B
+  
+  list(
+    observed_candidates = obs.cand,
+    selected_rows = obs.rows,
+    T.obs = T.obs,
+    T.perm = perm.stat,
+    T.perm.tie.count = perm.tie.count,
+    T.perm.tie.pr = perm.tie.pr,
+    p.values = p.values,
+    B = B,
+    p.grid = p.grid,
+    t.grid = t.grid
+  )
+}
+
+#Trial rows
+run.one.simulation.newmax <- function(scenario.row,
+                                      sim.index,
+                                      seed,
+                                      B = B_PERM_NEWMAX,
+                                      save.example = FALSE,
+                                      scenario.outdir = OUTDIR_NEWMAX) {
+  set.seed(seed)
+  
+  ds <- simulate.one.dataset(
+    N = c(scenario.row$N0, scenario.row$N1),
+    mort.rate.ctrl = scenario.row$mort.rate.ctrl,
+    mort.rate.trt = scenario.row$mort.rate.ctrl * scenario.row$HR,
+    evt.rate.shape.param = scenario.row$evt.rate.shape.param,
+    evt.rate.scale.param.ctr = scenario.row$evt.rate.scale.param.ctr,
+    evt.rate.scale.param.trt = scenario.row$evt.rate.scale.param.trt,
+    max.followup = scenario.row$max.FU
+  )
+  
+  ds <- apply.random.censoring(ds, censor.rate = scenario.row$censor.rate, seed = seed + 17L)
+  ds <- prepare.ds.fast(ds)
+  threshold.info <- choose.threshold.grid.primary(ds)
+  
+  test.out <- newmax.perm.test.one.trial(
+    ds = ds,
+    B = B,
+    seed = seed + 100000L,
+    p.grid = P_GRID_NEWMAX,
+    t.grid = threshold.info$t.grid,
+    verbose = FALSE
+  )
+  
+  if (isTRUE(save.example)) {
+    dir.create(scenario.outdir, recursive = TRUE, showWarnings = FALSE)
+    saveRDS(
+      list(
+        ds = ds,
+        threshold.info = threshold.info,
+        newmax.test.out = test.out
+      ),
+      file.path(scenario.outdir, paste0("NEWMAX_example_sim", sim.index, "_full_object.rds"))
+    )
+  }
+  
+  rows <- test.out$selected_rows
+  rows$scenario_id <- scenario.row$scenario_id
+  rows$scenario_label <- scenario_display_label_final(scenario.row$scenario_id)
+  rows$scenario_type <- scenario.row$scenario_type
+  rows$description <- scenario.row$description
+  rows$sim_index <- sim.index
+  rows$statistic_type <- ifelse(rows$measure == "WR", "Win ratio", "Win odds")
+  rows$rejected_0.05 <- rows$permutation_p_value < ALPHA_NEWMAX
+  
+  # Split one-sided and two-sided rows into wide format per trial-method-measure.
+  one <- rows[rows$side == "one", , drop = FALSE]
+  two <- rows[rows$side == "two", , drop = FALSE]
+  id.cols <- c("scenario_id", "scenario_label", "scenario_type", "description",
+               "sim_index", "measure", "statistic_type", "method", "method_label")
+  
+  one <- one[order(one$measure, one$method), , drop = FALSE]
+  two <- two[match(paste(one$measure, one$method), paste(two$measure, two$method)), , drop = FALSE]
+  
+  out <- data.frame(
+    scenario_id = one$scenario_id,
+    scenario_label = one$scenario_label,
+    scenario_type = one$scenario_type,
+    description = one$description,
+    sim_index = one$sim_index,
+    measure = one$measure,
+    statistic_type = one$statistic_type,
+    method = one$method,
+    method_label = one$method_label,
+    
+    selected_order_one_sided = one$selected_order,
+    selected_p_one_sided = one$selected_p,
+    selected_t_months_one_sided = one$selected_t_months,
+    selected_WR_one_sided = one$selected_WR,
+    selected_WO_one_sided = one$selected_WO,
+    observed_statistic_one_sided = one$selected_statistic,
+    permutation_p_value_one_sided = one$permutation_p_value,
+    rejected_one_sided = one$rejected_0.05,
+    win_pairs_one_sided = one$win_pairs,
+    loss_pairs_one_sided = one$loss_pairs,
+    tie_count_one_sided = one$tie_count,
+    tie_proportion_one_sided = one$tie_proportion,
+    mean_perm_tie_count_one_sided = one$mean_perm_tie_count,
+    mean_perm_tie_proportion_one_sided = one$mean_perm_tie_proportion,
+    
+    selected_order_two_sided = two$selected_order,
+    selected_p_two_sided = two$selected_p,
+    selected_t_months_two_sided = two$selected_t_months,
+    selected_WR_two_sided = two$selected_WR,
+    selected_WO_two_sided = two$selected_WO,
+    observed_statistic_two_sided = two$selected_statistic,
+    selected_log_value_two_sided = two$selected_log_value,
+    selected_abs_log_value_two_sided = two$selected_abs_log_value,
+    two_sided_tail_direction = two$selected_direction,
+    permutation_p_value_two_sided = two$permutation_p_value,
+    rejected_two_sided = two$rejected_0.05,
+    win_pairs_two_sided = two$win_pairs,
+    loss_pairs_two_sided = two$loss_pairs,
+    tie_count_two_sided = two$tie_count,
+    tie_proportion_two_sided = two$tie_proportion,
+    mean_perm_tie_count_two_sided = two$mean_perm_tie_count,
+    mean_perm_tie_proportion_two_sided = two$mean_perm_tie_proportion,
+    
+    B = B,
+    stringsAsFactors = FALSE
+  )
+  
+  rownames(out) <- NULL
+  out
+}
+
+#Summaries
+summarise.newmax.power <- function(method.rows, alpha = ALPHA_NEWMAX) {
+  if (is.null(method.rows) || nrow(method.rows) == 0) return(data.frame())
+  
+  keys <- unique(method.rows[, c("scenario_id", "scenario_label", "scenario_type", "description",
+                                 "measure", "statistic_type", "method", "method_label"), drop = FALSE])
+  
+  out <- lapply(seq_len(nrow(keys)), function(i) {
+    k <- keys[i, , drop = FALSE]
+    d <- method.rows[
+      method.rows$scenario_id == k$scenario_id &
+        method.rows$measure == k$measure &
+        method.rows$method == k$method,
+      , drop = FALSE
+    ]
+    
+    data.frame(
+      scenario_id = k$scenario_id,
+      scenario_label = k$scenario_label,
+      scenario_type = k$scenario_type,
+      description = k$description,
+      measure = k$measure,
+      statistic_type = k$statistic_type,
+      method = k$method,
+      method_label = k$method_label,
+      nsim.available = nrow(d),
       
-      wr <- agg[agg$statistic_type == "Win ratio" | is.na(agg$statistic_type), , drop = FALSE]
-      if (nrow(wr) > 0) {
-        mat <- rbind(max_one_sided = finite_or_na(wr$median_p_one_sided),
-                     fixed_one_sided = finite_or_na(wr$mean_fixed_p_one_sided),
-                     max_two_sided = finite_or_na(wr$median_p_two_sided),
-                     fixed_two_sided = finite_or_na(wr$mean_fixed_p_two_sided))
-        colnames(mat) <- short_method_label(wr$method)
-        barplot_png(file.path(scen.dir, paste0(sid, "_max_vs_fixed_selected_pvalues.png")), mat,
-                    ylab = "p-value", main = paste0(title_short(sid), ": max vs fixed selected p-values"),
-                    legend.cex = 0.75)
-      }
-    }
-  }
-  
-  ex <- list.files(scen.dir, pattern = "_example_sim[0-9]+_pvalue_table\\.csv$", full.names = TRUE)
-  if (length(ex) > 0) invisible(vapply(ex, plot_example_pvalues, logical(1)))
-  invisible(TRUE)
-}
-
-plot_global_from_tables <- function(outdir = OUTDIR) {
-  pwr <- read_csv_if_exists(file.path(outdir, "GLOBAL_power_summary.csv"))
-  raw <- read_csv_if_exists(file.path(outdir, "GLOBAL_method_trial_results.csv"))
-  if (is.null(raw)) raw <- read_csv_if_exists(file.path(outdir, "GLOBAL_all_scenarios_raw_results.csv"))
-  
-  if (!is.null(pwr) && nrow(pwr) > 0) {
-    d <- pwr[pwr$method %in% key.methods, , drop = FALSE]
-    scenarios <- unique(d$scenario_id)
-    for (side in c("one_sided", "two_sided")) {
-      mat <- matrix(NA_real_, nrow = length(key.methods), ncol = length(scenarios),
-                    dimnames = list(short_method_label(key.methods), scenario_short_label(scenarios)))
-      for (i in seq_len(nrow(d))) {
-        rr <- match(d$method[i], key.methods); cc <- match(d$scenario_id[i], scenarios)
-        mat[rr, cc] <- if (side == "one_sided") d$rejection_proportion_one_sided[i] else d$rejection_proportion_two_sided[i]
-      }
-      fname <- if (side == "one_sided") "GLOBAL_power_comparison_key_methods_one_sided.png" else "GLOBAL_power_comparison_key_methods_two_sided.png"
-      barplot_png(file.path(outdir, fname), mat,
-                  ylab = paste0("Rejection proportion, alpha = ", ALPHA),
-                  main = paste0("Power / rejection proportion: ", gsub("_", "-", side)),
-                  width = 3400, height = 1800, las = 2, mar = c(7, 5, 4, 1), legend.cex = 0.65, cex.names = 0.8)
-    }
-    one.file <- file.path(outdir, "GLOBAL_power_comparison_key_methods_one_sided.png")
-    compat.file <- file.path(outdir, "GLOBAL_power_comparison_key_methods.png")
-    if (file.exists(one.file)) try(file.copy(one.file, compat.file, overwrite = TRUE), silent = TRUE)
-  }
-  
-  if (!is.null(raw) && nrow(raw) > 0) {
-    agg <- summarise_method_rows(raw)
-    agg <- agg[agg$method %in% key.methods, , drop = FALSE]
-    if (nrow(agg) > 0) {
-      mat <- rbind(one_sided = finite_or_na(agg$median_p_one_sided), two_sided = finite_or_na(agg$median_p_two_sided))
-      colnames(mat) <- short_method_label(agg$method)
-      barplot_png(file.path(outdir, "GLOBAL_permutation_pvalue_comparison.png"), mat,
-                  ylab = "Median p-value", main = "Median p-values across all scenarios",
-                  width = 3400, height = 1700)
+      mean_p_one_sided = safe_mean(d$permutation_p_value_one_sided),
+      median_p_one_sided = safe_median(d$permutation_p_value_one_sided),
+      rejection_proportion_one_sided = mean(d$permutation_p_value_one_sided < alpha, na.rm = TRUE),
       
-      wr <- agg[agg$statistic_type == "Win ratio" | is.na(agg$statistic_type), , drop = FALSE]
-      mat <- rbind(max_one_sided = finite_or_na(wr$median_p_one_sided),
-                   fixed_one_sided = finite_or_na(wr$mean_fixed_p_one_sided),
-                   max_two_sided = finite_or_na(wr$median_p_two_sided),
-                   fixed_two_sided = finite_or_na(wr$mean_fixed_p_two_sided))
-      colnames(mat) <- short_method_label(wr$method)
-      barplot_png(file.path(outdir, "GLOBAL_fixed_selected_pvalue_comparison.png"), mat,
-                  ylab = "p-value", main = "Max vs fixed-selected WR p-values",
-                  width = 3400, height = 1700, legend.cex = 0.7)
+      mean_p_two_sided = safe_mean(d$permutation_p_value_two_sided),
+      median_p_two_sided = safe_median(d$permutation_p_value_two_sided),
+      rejection_proportion_two_sided = mean(d$permutation_p_value_two_sided < alpha, na.rm = TRUE),
+      
+      mean_WR_one_sided_selection = safe_mean(d$selected_WR_one_sided),
+      mean_WR_two_sided_selection = safe_mean(d$selected_WR_two_sided),
+      mean_WO_one_sided_selection = safe_mean(d$selected_WO_one_sided),
+      mean_WO_two_sided_selection = safe_mean(d$selected_WO_two_sided),
+      
+      mean_selected_p_one_sided = safe_mean(d$selected_p_one_sided),
+      mean_selected_p_two_sided = safe_mean(d$selected_p_two_sided),
+      mode_selected_order_one_sided = mode_string(d$selected_order_one_sided),
+      mode_selected_order_two_sided = mode_string(d$selected_order_two_sided),
+      mean_selected_t_months_one_sided = safe_mean(d$selected_t_months_one_sided),
+      mean_selected_t_months_two_sided = safe_mean(d$selected_t_months_two_sided),
+      
+      mean_tie_count_one_sided_selection = safe_mean(d$tie_count_one_sided),
+      mean_tie_count_two_sided_selection = safe_mean(d$tie_count_two_sided),
+      mean_tie_proportion_one_sided_selection = safe_mean(d$tie_proportion_one_sided),
+      mean_tie_proportion_two_sided_selection = safe_mean(d$tie_proportion_two_sided),
+      mean_perm_tie_count_one_sided = safe_mean(d$mean_perm_tie_count_one_sided),
+      mean_perm_tie_count_two_sided = safe_mean(d$mean_perm_tie_count_two_sided),
+      mean_perm_tie_proportion_one_sided = safe_mean(d$mean_perm_tie_proportion_one_sided),
+      mean_perm_tie_proportion_two_sided = safe_mean(d$mean_perm_tie_proportion_two_sided),
+      alpha = alpha,
+      stringsAsFactors = FALSE
+    )
+  })
+  
+  out <- do.call(rbind, out)
+  rownames(out) <- NULL
+  out
+}
+
+#Scenario
+run.scenario.newmax <- function(scenario.row,
+                                nsim = NSIM_NEWMAX,
+                                B = B_PERM_NEWMAX,
+                                master.seed = MASTER_SEED_NEWMAX,
+                                outdir = OUTDIR_NEWMAX,
+                                cl = NULL) {
+  scenario.label <- scenario_display_label_final(scenario.row$scenario_id)
+  scenario.outdir <- file.path(outdir, paste0(sprintf("%02d", scenario.row$scenario_index), "_", scenario.row$scenario_id))
+  dir.create(scenario.outdir, recursive = TRUE, showWarnings = FALSE)
+  
+  cat("\n===== New-max Scenario", scenario.row$scenario_index, ":", scenario.label, "=====\n")
+  cat("HR =", scenario.row$HR,
+      "; hosp scale =", scenario.row$evt.rate.scale.param.trt,
+      "; FU =", scenario.row$max.FU,
+      "; censor =", scenario.row$censor.rate, "\n")
+  cat("NSIM_NEWMAX =", nsim, "; B_PERM_NEWMAX =", B, "\n")
+  
+  checkpoint.file <- file.path(scenario.outdir, "NEWMAX_checkpoint_method_trial_results.csv")
+  final.file <- file.path(scenario.outdir, "NEWMAX_method_trial_results.csv")
+  
+  done.rows <- data.frame()
+  completed <- integer(0)
+  if (isTRUE(RESUME_NEWMAX_IF_EXISTS) && file.exists(checkpoint.file)) {
+    done.rows <- tryCatch(read.csv(checkpoint.file, stringsAsFactors = FALSE), error = function(e) data.frame())
+    if (nrow(done.rows) > 0 && "sim_index" %in% names(done.rows)) {
+      completed <- sort(unique(as.integer(done.rows$sim_index)))
+      cat("Resuming from checkpoint; completed trials:", length(completed), "\n")
+    }
+  } else if (isTRUE(RESUME_NEWMAX_IF_EXISTS) && file.exists(final.file)) {
+    done.rows <- tryCatch(read.csv(final.file, stringsAsFactors = FALSE), error = function(e) data.frame())
+    if (nrow(done.rows) > 0 && "sim_index" %in% names(done.rows)) {
+      completed <- sort(unique(as.integer(done.rows$sim_index)))
+      cat("Resuming from final file; completed trials:", length(completed), "\n")
     }
   }
-  invisible(TRUE)
-}
-
-replot_all_short_labels <- function(outdir = OUTDIR) {
-  if (!dir.exists(outdir)) stop("Output folder does not exist: ", outdir)
-  scen.dirs <- list.dirs(outdir, recursive = FALSE, full.names = TRUE)
-  scen.dirs <- scen.dirs[grepl("/[0-9]{2}_S[0-9]{2}_", gsub("\\\\", "/", scen.dirs))]
-  for (d in scen.dirs) {
-    message("Replotting scenario figures: ", basename(d))
-    try(plot_scenario_from_tables(d), silent = TRUE)
+  
+  sims.to.run <- setdiff(seq_len(nsim), completed)
+  
+  if (length(sims.to.run) > 0) {
+    batches <- split(sims.to.run, ceiling(seq_along(sims.to.run) / CHECKPOINT_EVERY_NEWMAX))
+    
+    for (bi in seq_along(batches)) {
+      sims <- batches[[bi]]
+      cat("  batch", bi, "of", length(batches), ": trials", min(sims), "to", max(sims), "\n")
+      
+      run_fun <- function(s) {
+        seed <- as.integer(master.seed + scenario.row$scenario_index * 1000000L + s * 104729L)
+        tryCatch(
+          run.one.simulation.newmax(
+            scenario.row = scenario.row,
+            sim.index = s,
+            seed = seed,
+            B = B,
+            save.example = isTRUE(SAVE_EXAMPLE_NEWMAX_OBJECT) && s == 1L,
+            scenario.outdir = scenario.outdir
+          ),
+          error = function(e) {
+            data.frame(
+              scenario_id = scenario.row$scenario_id,
+              scenario_label = scenario.label,
+              scenario_type = scenario.row$scenario_type,
+              description = scenario.row$description,
+              sim_index = s,
+              measure = NA_character_,
+              statistic_type = NA_character_,
+              method = NA_character_,
+              method_label = NA_character_,
+              error = conditionMessage(e),
+              stringsAsFactors = FALSE
+            )
+          }
+        )
+      }
+      
+      batch.list <- if (!is.null(cl)) {
+        parallel::parLapplyLB(cl, sims, run_fun)
+      } else {
+        lapply(sims, run_fun)
+      }
+      
+      batch.rows <- rbind_fill_base(batch.list)
+      done.rows <- rbind_fill_base(list(done.rows, batch.rows))
+      write.csv(done.rows, checkpoint.file, row.names = FALSE)
+      cat("    saved checkpoint:", checkpoint.file, "\n")
+    }
   }
-  message("Replotting global figures")
-  try(plot_global_from_tables(outdir), silent = TRUE)
-  message("Done. Numeric CSV/RDS results were not changed; PNG figures were overwritten/created.")
-  invisible(TRUE)
+  
+  method.rows <- done.rows
+  power.summary <- summarise.newmax.power(method.rows, alpha = ALPHA_NEWMAX)
+  
+  write.csv(method.rows, final.file, row.names = FALSE)
+  write.csv(power.summary, file.path(scenario.outdir, "NEWMAX_power_summary.csv"), row.names = FALSE)
+  
+  list(method = method.rows, power = power.summary)
 }
 
-# Run automatically when sourced, unless AUTO_REPLOT=FALSE was set.
-if (!identical(toupper(Sys.getenv("AUTO_REPLOT", "TRUE")), "FALSE")) {
-  replot_all_short_labels(OUTDIR)
+#Parallel cluster
+newmax_parallel_export_names <- function() {
+  exclude <- c("fast_threshold_combo_core_cpp", "fast_wr_core_revised_cpp", "cl", "out", ".Random.seed")
+  setdiff(ls(envir = .GlobalEnv), exclude)
 }
+
+make.newmax.cluster <- function(n.workers = N_WORKERS_NEWMAX) {
+  if (!isTRUE(PARALLEL_NEWMAX) || n.workers <= 1L) return(NULL)
+  
+  cl <- tryCatch(
+    parallel::makePSOCKcluster(n.workers),
+    error = function(e) {
+      warning("Could not start PSOCK cluster; falling back to serial: ", conditionMessage(e))
+      NULL
+    }
+  )
+  if (is.null(cl)) return(NULL)
+  
+  ok <- tryCatch({
+    parallel::clusterExport(cl, newmax_parallel_export_names(), envir = .GlobalEnv)
+    parallel::clusterEvalQ(cl, {
+      Sys.setenv(
+        OMP_NUM_THREADS = "1",
+        OPENBLAS_NUM_THREADS = "1",
+        MKL_NUM_THREADS = "1",
+        VECLIB_MAXIMUM_THREADS = "1",
+        NUMEXPR_NUM_THREADS = "1"
+      )
+      suppressPackageStartupMessages({
+        library(survival)
+        library(Rcpp)
+      })
+      Rcpp::sourceCpp(code = CPP_FAST_WR_CODE_FOR_PARALLEL)
+      Rcpp::sourceCpp(code = CPP_THRESHOLD_COMBO_CODE)
+      NULL
+    })
+    TRUE
+  }, error = function(e) {
+    warning("Could not initialize worker sessions; falling back to serial: ", conditionMessage(e))
+    FALSE
+  })
+  
+  if (!isTRUE(ok)) {
+    try(parallel::stopCluster(cl), silent = TRUE)
+    return(NULL)
+  }
+  
+  cat("  Parallel enabled with", n.workers, "workers.\n")
+  cl
+}
+
+#output
+standardize_old_power_for_table <- function() {
+  old.rows <- data.frame()
+  
+  wr.file <- file.path(WR_ORIGINAL_DIR, "GLOBAL_power_summary.csv")
+  if (file.exists(wr.file)) {
+    wr <- read.csv(wr.file, stringsAsFactors = FALSE)
+    wr.map <- data.frame(
+      method = c("traditionalOrderWR", "maxWRp_primary", "maxOrderWR_primary", "maxWRt"),
+      method6 = c("M_ord", "M_wt^0.5", "M_ord,wt^0.5", "M_thresh"),
+      stringsAsFactors = FALSE
+    )
+    wr <- merge(wr, wr.map, by = "method")
+    old.rows <- rbind_fill_base(list(old.rows, data.frame(
+      scenario_id = wr$scenario_id,
+      scenario_label = wr$scenario_label,
+      measure = "WR",
+      method6 = wr$method6,
+      source_method = wr$method,
+      rejection_proportion_one_sided = wr$rejection_proportion_one_sided,
+      rejection_proportion_two_sided = wr$rejection_proportion_two_sided,
+      mean_p_one_sided = wr$mean_p_one_sided,
+      mean_p_two_sided = wr$mean_p_two_sided,
+      mean_selected_p_one_sided = wr$mean_selected_p_one_sided,
+      mean_selected_p_two_sided = wr$mean_selected_p_two_sided,
+      mode_selected_order_one_sided = wr$mode_selected_order_one_sided,
+      mode_selected_order_two_sided = wr$mode_selected_order_two_sided,
+      mean_selected_t_months_one_sided = wr$mean_selected_t_months_one_sided,
+      mean_selected_t_months_two_sided = wr$mean_selected_t_months_two_sided,
+      mean_tie_proportion_one_sided_selection = wr$mean_tie_proportion_one_sided_selection,
+      mean_tie_proportion_two_sided_selection = wr$mean_tie_proportion_two_sided_selection,
+      stringsAsFactors = FALSE
+    )))
+  }
+  
+  wo.file <- file.path(WO_ORIGINAL_DIR, "WO_GLOBAL_power_summary.csv")
+  if (file.exists(wo.file)) {
+    wo <- read.csv(wo.file, stringsAsFactors = FALSE)
+    wo.map <- data.frame(
+      method = c("M_ord", "M_wt_0.5", "M_ordwt_0.5", "M_thresh"),
+      method6 = c("M_ord", "M_wt^0.5", "M_ord,wt^0.5", "M_thresh"),
+      stringsAsFactors = FALSE
+    )
+    wo <- merge(wo, wo.map, by = "method")
+    old.rows <- rbind_fill_base(list(old.rows, data.frame(
+      scenario_id = wo$scenario_id,
+      scenario_label = wo$scenario_label,
+      measure = "WO",
+      method6 = wo$method6,
+      source_method = wo$method,
+      rejection_proportion_one_sided = wo$rejection_proportion_one_sided,
+      rejection_proportion_two_sided = wo$rejection_proportion_two_sided,
+      mean_p_one_sided = wo$mean_p_one_sided,
+      mean_p_two_sided = wo$mean_p_two_sided,
+      mean_selected_p_one_sided = wo$mean_selected_p_one_sided,
+      mean_selected_p_two_sided = wo$mean_selected_p_two_sided,
+      mode_selected_order_one_sided = wo$mode_selected_order_one_sided,
+      mode_selected_order_two_sided = wo$mode_selected_order_two_sided,
+      mean_selected_t_months_one_sided = wo$mean_selected_t_months_one_sided,
+      mean_selected_t_months_two_sided = wo$mean_selected_t_months_two_sided,
+      mean_tie_proportion_one_sided_selection = wo$mean_tie_proportion_one_sided_selection,
+      mean_tie_proportion_two_sided_selection = wo$mean_tie_proportion_two_sided_selection,
+      stringsAsFactors = FALSE
+    )))
+  }
+  
+  old.rows
+}
+
+make.combined.six.max.table.source <- function(new.power, outdir = OUTDIR_NEWMAX) {
+  old.rows <- standardize_old_power_for_table()
+  
+  new.rows <- data.frame(
+    scenario_id = new.power$scenario_id,
+    scenario_label = new.power$scenario_label,
+    measure = new.power$measure,
+    method6 = ifelse(new.power$method == "M_wt_thresh_0.5", "M_wt,thresh^0.5", "M_ord,thresh"),
+    source_method = new.power$method,
+    rejection_proportion_one_sided = new.power$rejection_proportion_one_sided,
+    rejection_proportion_two_sided = new.power$rejection_proportion_two_sided,
+    mean_p_one_sided = new.power$mean_p_one_sided,
+    mean_p_two_sided = new.power$mean_p_two_sided,
+    mean_selected_p_one_sided = new.power$mean_selected_p_one_sided,
+    mean_selected_p_two_sided = new.power$mean_selected_p_two_sided,
+    mode_selected_order_one_sided = new.power$mode_selected_order_one_sided,
+    mode_selected_order_two_sided = new.power$mode_selected_order_two_sided,
+    mean_selected_t_months_one_sided = new.power$mean_selected_t_months_one_sided,
+    mean_selected_t_months_two_sided = new.power$mean_selected_t_months_two_sided,
+    mean_tie_proportion_one_sided_selection = new.power$mean_tie_proportion_one_sided_selection,
+    mean_tie_proportion_two_sided_selection = new.power$mean_tie_proportion_two_sided_selection,
+    stringsAsFactors = FALSE
+  )
+  
+  combined <- rbind_fill_base(list(old.rows, new.rows))
+  combined$scenario_short <- sprintf("S%02d", match(combined$scenario_id, build.final.15.scenario.grid()$scenario_id))
+  combined$method6 <- factor(
+    combined$method6,
+    levels = c("M_ord", "M_wt^0.5", "M_ord,wt^0.5", "M_thresh", "M_wt,thresh^0.5", "M_ord,thresh")
+  )
+  combined <- combined[order(combined$measure, combined$method6, combined$scenario_short), , drop = FALSE]
+  
+  write.csv(combined, file.path(outdir, "NEWMAX_Table3_six_maximized_stats_source_long.csv"), row.names = FALSE)
+  combined
+}
+
+#runner
+run.all.newmax <- function(scenario.grid = build.final.15.scenario.grid(),
+                           nsim = NSIM_NEWMAX,
+                           B = B_PERM_NEWMAX,
+                           outdir = OUTDIR_NEWMAX,
+                           master.seed = MASTER_SEED_NEWMAX) {
+  dir.create(outdir, recursive = TRUE, showWarnings = FALSE)
+  
+  scenario.grid$scenario_index <- seq_len(nrow(scenario.grid))
+  scenario.grid$scenario_label <- scenario_display_label_final(scenario.grid$scenario_id)
+  write.csv(scenario.grid, file.path(outdir, "NEWMAX_GLOBAL_scenario_config.csv"), row.names = FALSE)
+  
+  settings <- data.frame(
+    setting = c(
+      "WR_original_dir", "WO_original_dir", "output_dir", "NSIM_NEWMAX", "B_PERM_NEWMAX",
+      "MASTER_SEED_NEWMAX", "ALPHA_NEWMAX", "P_GRID_NEWMAX", "new_methods",
+      "WR_definition", "WO_definition", "checkpoint_every", "resume", "parallel", "n_workers"
+    ),
+    value = c(
+      WR_ORIGINAL_DIR,
+      WO_ORIGINAL_DIR,
+      outdir,
+      as.character(nsim),
+      as.character(B),
+      as.character(master.seed),
+      as.character(ALPHA_NEWMAX),
+      paste(P_GRID_NEWMAX, collapse = ", "),
+      "M_wt_thresh_0.5 and M_ord_thresh for WR and WO",
+      "WR = weighted win score / weighted loss score, with existing epsilon correction",
+      "WO = (win_pairs + 0.5 * tie_count) / (loss_pairs + 0.5 * tie_count)",
+      as.character(CHECKPOINT_EVERY_NEWMAX),
+      as.character(RESUME_NEWMAX_IF_EXISTS),
+      as.character(PARALLEL_NEWMAX),
+      as.character(N_WORKERS_NEWMAX)
+    ),
+    stringsAsFactors = FALSE
+  )
+  write.csv(settings, file.path(outdir, "NEWMAX_GLOBAL_settings.csv"), row.names = FALSE)
+  
+  cl <- make.newmax.cluster(N_WORKERS_NEWMAX)
+  on.exit({ if (!is.null(cl)) try(parallel::stopCluster(cl), silent = TRUE) }, add = TRUE)
+  
+  all.method <- data.frame()
+  all.power <- data.frame()
+  
+  for (i in seq_len(nrow(scenario.grid))) {
+    out.i <- run.scenario.newmax(
+      scenario.row = scenario.grid[i, , drop = FALSE],
+      nsim = nsim,
+      B = B,
+      master.seed = master.seed,
+      outdir = outdir,
+      cl = cl
+    )
+    
+    all.method <- rbind_fill_base(list(all.method, out.i$method))
+    all.power <- rbind_fill_base(list(all.power, out.i$power))
+    
+    write.csv(all.method, file.path(outdir, "NEWMAX_GLOBAL_method_trial_results_WR_WO.csv"), row.names = FALSE)
+    write.csv(all.power, file.path(outdir, "NEWMAX_GLOBAL_power_summary_WR_WO.csv"), row.names = FALSE)
+    
+    write.csv(all.method[all.method$measure %in% "WR", , drop = FALSE],
+              file.path(outdir, "NEWMAX_GLOBAL_method_trial_results_WR.csv"), row.names = FALSE)
+    write.csv(all.method[all.method$measure %in% "WO", , drop = FALSE],
+              file.path(outdir, "NEWMAX_GLOBAL_method_trial_results_WO.csv"), row.names = FALSE)
+    write.csv(all.power[all.power$measure %in% "WR", , drop = FALSE],
+              file.path(outdir, "NEWMAX_GLOBAL_power_summary_WR.csv"), row.names = FALSE)
+    write.csv(all.power[all.power$measure %in% "WO", , drop = FALSE],
+              file.path(outdir, "NEWMAX_GLOBAL_power_summary_WO.csv"), row.names = FALSE)
+  }
+  
+  table3.source <- make.combined.six.max.table.source(all.power, outdir = outdir)
+  
+  manifest <- data.frame(file = list.files(outdir, recursive = TRUE), stringsAsFactors = FALSE)
+  write.csv(manifest, file.path(outdir, "NEWMAX_GLOBAL_output_manifest.csv"), row.names = FALSE)
+  
+  list(method = all.method, power = all.power, table3_source = table3.source)
+}
+
+#run code
+cat("\n===== Starting NEW maximized statistic run for WR and WO =====\n")
+cat("New methods: M_wt_thresh_0.5 and M_ord_thresh.\n")
+cat("Output folder:", OUTDIR_NEWMAX, "\n")
+cat("NSIM_NEWMAX =", NSIM_NEWMAX, "; B_PERM_NEWMAX =", B_PERM_NEWMAX, "; workers =", N_WORKERS_NEWMAX, "\n")
+
+newmax.out <- run.all.newmax(
+  scenario.grid = build.final.15.scenario.grid(),
+  nsim = NSIM_NEWMAX,
+  B = B_PERM_NEWMAX,
+  outdir = OUTDIR_NEWMAX,
+  master.seed = MASTER_SEED_NEWMAX
+)
+
+cat("\nDone. Main outputs are in:\n")
+cat(OUTDIR_NEWMAX, "\n")
+cat("\nKey files:\n")
+cat(file.path(OUTDIR_NEWMAX, "NEWMAX_GLOBAL_power_summary_WR_WO.csv"), "\n")
+cat(file.path(OUTDIR_NEWMAX, "NEWMAX_GLOBAL_method_trial_results_WR_WO.csv"), "\n")
+cat(file.path(OUTDIR_NEWMAX, "NEWMAX_Table3_six_maximized_stats_source_long.csv"), "\n")
+
