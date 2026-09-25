@@ -28,42 +28,53 @@ if (!exists("MASTER_SEED")) MASTER_SEED <- 2026
 if (!exists("ALPHA")) ALPHA <- 0.05
 if (!exists("RESUME_IF_EXISTS")) RESUME_IF_EXISTS <- TRUE
 if (!exists("VERBOSE")) VERBOSE <- TRUE
-if (!exists("AUTO_RUN")) AUTO_RUN <- TRUE
+if (!exists("AUTO_RUN")) AUTO_RUN <- FALSE
 
 # Weighted p grids.
-# p is the weight assigned to the first endpoint in the selected hierarchy.
-# For death-first order: p weights death/survival; 1-p weights hospitalization.
-# For hospitalization-first order: p weights hospitalization; 1-p weights death.
-# No p = 0 value is used. Values below 0.5 are exploratory only;
-# the primary weighted analysis remains p in [0.5, 1].
 P_GRID_EXPLORATORY <- seq(0.01, 0.49, by = 0.01)
 P_GRID_LOW <- P_GRID_EXPLORATORY
 P_GRID_PRIMARY <- seq(0.50, 1.00, by = 0.01)
 P_GRID_ALL <- sort(unique(c(P_GRID_EXPLORATORY, P_GRID_PRIMARY)))
 
-# Clinically interpretable backup candidates for a time-difference threshold t.
-# These candidates are combined with first-endpoint data-informed candidates.
-# They are sensitivity candidates, not universal margins; update them for the
-# disease area and statistical analysis plan if stronger disease-specific
-# candidates are available.
 CLINICAL_T_MONTHS <- c(1, 3, 6, 12, 18, 24)
 MAX_T_GRID_SIZE <- 10
 EPS_WR <- 1e-8
 
-#data import blocks
 
-# Subject-level file format expected by default:
-#   SUBJID    subject ID
-#   ARM       0 = control, 1 = treatment; text labels are also accepted
-#   FUTIME    follow-up time
-#   CNSR      death/event indicator for the first endpoint, 1 = death, 0 = censored
-#   NUMHOSP   optional hospitalization count
-#   HOSP_TIMES optional hospitalization times, e.g. "0.2;0.6;1.1"
-#
-# Recurrent hospitalization file is optional. If supplied, it should contain:
-#   SUBJID    subject ID
-#   HOSPTIME  hospitalization time
-#
+# endpoint values justified by the monotonicity result: p = 0.50 and p = 1.00.
+if (!exists("FINAL_P_VALUES")) FINAL_P_VALUES <- c(0.50, 1.00)
+
+# Threshold candidate block for the  WR/WO analysis.
+if (!exists("THRESHOLD_CANDIDATE_MONTHS")) {
+  THRESHOLD_CANDIDATE_MONTHS <- c(1, 3, 6, 12, 18, 24)
+}
+
+# Optional dataset-specific candidate values. Use the dataset_id as the name.
+# If a dataset is not listed here, THRESHOLD_CANDIDATE_MONTHS is used.
+# Example:
+# THRESHOLD_CANDIDATES_BY_DATASET <- list(
+# realdata1 = c(3, 6, 12, 18, 24),
+# DIG = c(6, 12, 24, 36)
+# )
+if (!exists("THRESHOLD_CANDIDATES_BY_DATASET")) {
+  THRESHOLD_CANDIDATES_BY_DATASET <- list()
+}
+
+# Data-driven threshold settings
+# take the 10th, 25th, 50th, 75th, and 90th percentiles.
+if (!exists("THRESHOLD_DATA_PROBS")) {
+  THRESHOLD_DATA_PROBS <- c(0.10, 0.25, 0.50, 0.75, 0.90)
+}
+if (!exists("THRESHOLD_MAX_EVENT_TIMES")) THRESHOLD_MAX_EVENT_TIMES <- 800L
+if (!exists("THRESHOLD_DATA_SEED")) THRESHOLD_DATA_SEED <- 999L
+
+
+if (!exists("MANUAL_T_MONTHS")) MANUAL_T_MONTHS <- THRESHOLD_CANDIDATE_MONTHS
+if (!exists("THRESHOLD_MONTHS_BY_DATASET")) THRESHOLD_MONTHS_BY_DATASET <- THRESHOLD_CANDIDATES_BY_DATASET
+if (!exists("THRESHOLD_MODE")) THRESHOLD_MODE <- "candidate_plus_data_driven"
+if (!exists("FINAL_P_GRID")) FINAL_P_GRID <- FINAL_P_VALUES
+
+#data import blocks
 # Times are converted to years using time_unit / hosp_time_unit.
 # hosp_time_type = "absolute" means HOSP_TIMES/HOSPTIME are times from baseline.
 # hosp_time_type = "gap" means they are gap times between hospitalizations.
@@ -3810,4 +3821,1403 @@ if (AUTO_RUN) {
     )
   }
 }
+
+
+
+if (!exists("AUTO_RUN_FINAL_WR_WO")) AUTO_RUN_FINAL_WR_WO <- TRUE
+if (!exists("B_REAL_FINAL")) B_REAL_FINAL <- B_REAL
+if (!exists("BATCH_SIZE_REAL_FINAL")) BATCH_SIZE_REAL_FINAL <- BATCH_SIZE_REAL
+if (!exists("RESUME_FINAL_IF_EXISTS")) RESUME_FINAL_IF_EXISTS <- RESUME_IF_EXISTS
+if (!exists("FINAL_ALPHA")) FINAL_ALPHA <- ALPHA
+
+FINAL_PAIRWISE_METHODS <- c(
+  "fixed_12",
+  "fixed_21",
+  "M_wt_0.5",
+  "M_ord",
+  "M_thresh",
+  "M_wt_thresh_0.5",
+  "M_ord_thresh",
+  "M_ordwt_0.5"
+)
+
+final.method.label <- function(method, measure = c("WR", "WO")) {
+  measure <- match.arg(measure)
+  map <- c(
+    fixed_12 = measure,
+    fixed_21 = paste0(measure, "^ord(2,1)"),
+    M_wt_0.5 = "M_wt^0.5",
+    M_ord = "M_ord",
+    M_thresh = "M_thresh",
+    M_wt_thresh_0.5 = "M_wt,thresh^0.5",
+    M_ord_thresh = "M_ord,thresh",
+    M_ordwt_0.5 = "M_ord,wt^0.5"
+  )
+  unname(map[method])
+}
+
+final.method.long.label <- function(method, measure = c("WR", "WO")) {
+  measure <- match.arg(measure)
+  map <- c(
+    fixed_12 = paste0(measure, ", order (1,2)"),
+    fixed_21 = paste0(measure, ", fixed order (2,1)"),
+    M_wt_0.5 = "Weight-selected, p in {0.5, 1.0}, order (1,2)",
+    M_ord = "Order-selected, p = 0.5",
+    M_thresh = "Threshold-selected, p = 0.5, order (1,2)",
+    M_wt_thresh_0.5 = "Weight- and threshold-selected, p in {0.5, 1.0}, order (1,2)",
+    M_ord_thresh = "Order- and threshold-selected, p = 0.5",
+    M_ordwt_0.5 = "Order- and weight-selected, p in {0.5, 1.0}"
+  )
+  unname(map[method])
+}
+
+final.log.ratio <- function(x) {
+  x <- as.numeric(x)
+  out <- rep(NA_real_, length(x))
+  ok <- is.finite(x) & x > 0
+  out[ok] <- log(x[ok])
+  out[is.infinite(x) & x > 0] <- Inf
+  out
+}
+
+final.abslog.ratio <- function(x) {
+  abs(final.log.ratio(x))
+}
+
+final.wo <- function(win.pairs, loss.pairs, tie.count) {
+  win.pairs <- as.numeric(win.pairs)
+  loss.pairs <- as.numeric(loss.pairs)
+  tie.count <- as.numeric(tie.count)
+  num <- win.pairs + 0.5 * tie.count
+  den <- loss.pairs + 0.5 * tie.count
+  out <- rep(NA_real_, length(num))
+  ok <- is.finite(num) & is.finite(den) & den > 0
+  out[ok] <- num[ok] / den[ok]
+  out[is.finite(num) & is.finite(den) & den == 0 & num > 0] <- Inf
+  out
+}
+
+final.right.tail.p <- function(perm.stat, obs.stat) {
+  perm.stat <- as.numeric(perm.stat)
+  obs.stat <- as.numeric(obs.stat)[1]
+  ok <- is.finite(perm.stat) | is.infinite(perm.stat)
+  obs.ok <- is.finite(obs.stat) | is.infinite(obs.stat)
+  if (!obs.ok || sum(ok) == 0) return(NA_real_)
+  (1 + sum(perm.stat[ok] >= obs.stat)) / (sum(ok) + 1)
+}
+
+final.mode.string <- function(x) {
+  x <- as.character(x)
+  x <- x[!is.na(x) & nzchar(x)]
+  if (length(x) == 0) return(NA_character_)
+  names(sort(table(x), decreasing = TRUE))[1]
+}
+
+final.safe.mean <- function(x) {
+  x <- as.numeric(x)
+  x <- x[is.finite(x) & !is.na(x)]
+  if (length(x) == 0) return(NA_real_)
+  mean(x)
+}
+
+final.manual.thresholds <- function(dataset.id) {
+  dataset.id <- as.character(dataset.id)[1]
+  if (length(THRESHOLD_CANDIDATES_BY_DATASET) > 0 &&
+      !is.null(names(THRESHOLD_CANDIDATES_BY_DATASET)) &&
+      dataset.id %in% names(THRESHOLD_CANDIDATES_BY_DATASET)) {
+    return(as.numeric(THRESHOLD_CANDIDATES_BY_DATASET[[dataset.id]]))
+  }
+  as.numeric(THRESHOLD_CANDIDATE_MONTHS)
+}
+
+# Same outcome-1 data-driven threshold mechanism used in the simulation and
+# three-endpoint code. Candidate thresholds entered above are always combined
+# with data-driven values; this final analysis does not switch between manual
+# and data-driven modes.
+choose.threshold.grid.final <- function(ds,
+                                        dataset.id = "realdata",
+                                        candidate.months = final.manual.thresholds(dataset.id),
+                                        max.K = MAX_T_GRID_SIZE,
+                                        probs = THRESHOLD_DATA_PROBS,
+                                        max.event.times = THRESHOLD_MAX_EVENT_TIMES,
+                                        data.seed = THRESHOLD_DATA_SEED) {
+  tab <- ds$table.output
+  max.months <- max(tab$FUTIME, na.rm = TRUE) * 12
+  
+  # Data-driven candidates use only observed outcome-1 event times.
+  # Censored follow-up times, hospitalization counts/times, and composite
+  # endpoint information are not used to generate the data-driven thresholds.
+  event.months <- as.numeric(tab$FUTIME[tab$CNSR == 1] * 12)
+  event.months <- event.months[is.finite(event.months) & event.months >= 0]
+  
+  event.for.diff <- event.months
+  if (length(event.for.diff) > max.event.times) {
+    set.seed(data.seed)
+    event.for.diff <- sample(event.for.diff, max.event.times, replace = FALSE)
+  }
+  
+  pair.abs.diff <- numeric(0)
+  if (length(event.for.diff) >= 2) {
+    pair.abs.diff <- abs(as.vector(stats::dist(event.for.diff)))
+    pair.abs.diff <- pair.abs.diff[is.finite(pair.abs.diff) & pair.abs.diff > 0]
+  }
+  
+  probs <- as.numeric(probs)
+  probs <- probs[is.finite(probs) & probs > 0 & probs < 1]
+  probs <- sort(unique(probs))
+  
+  data.quantile.values <- rep(NA_real_, length(probs))
+  if (length(pair.abs.diff) > 0 && length(probs) > 0) {
+    data.quantile.values <- as.numeric(stats::quantile(
+      pair.abs.diff,
+      probs = probs,
+      na.rm = TRUE,
+      names = FALSE
+    ))
+  }
+  data.quantile.values <- round(data.quantile.values, 1)
+  
+  data.priority <- data.quantile.values
+  data.priority <- data.priority[is.finite(data.priority) & data.priority > 0 & data.priority <= max.months]
+  data.priority <- unique(data.priority)
+  
+  candidate <- as.numeric(candidate.months)
+  candidate <- round(candidate[is.finite(candidate) & candidate > 0 & candidate <= max.months], 1)
+  candidate <- unique(sort(candidate))
+  
+  # Keep all user-entered candidates first, then add the data-driven values.
+  # MAX_T_GRID_SIZE limits the combined set only when the user-entered set does
+  # not already exceed that limit. User-entered candidates are never deleted.
+  selected <- candidate
+  for (x in data.priority) {
+    if (length(selected) >= max.K && length(candidate) <= max.K) break
+    selected <- unique(c(selected, x))
+  }
+  selected <- sort(selected)
+  
+  if (length(selected) == 0) {
+    stop("No valid threshold candidates were available. Enter at least one value in THRESHOLD_CANDIDATE_MONTHS or THRESHOLD_CANDIDATES_BY_DATASET.")
+  }
+  
+  source.type <- vapply(selected, function(x) {
+    in.candidate <- any(abs(candidate - x) < 1e-9)
+    in.data <- any(abs(data.priority - x) < 1e-9)
+    if (in.candidate && in.data) return("candidate + data-driven")
+    if (in.candidate) return("user candidate")
+    "data-driven"
+  }, character(1))
+  
+  threshold.table <- data.frame(
+    t.months = selected,
+    t.years = selected / 12,
+    source = source.type,
+    stringsAsFactors = FALSE
+  )
+  
+  q.names <- if (length(probs) > 0) paste0("q", sprintf("%02d", round(100 * probs))) else character(0)
+  diagnostics <- data.frame(
+    quantity = c(
+      "maximum observed follow-up",
+      "number of observed outcome-1 events",
+      paste0("absolute pairwise observed event-time difference ", q.names)
+    ),
+    value = c(
+      max.months,
+      length(event.months),
+      data.quantile.values
+    ),
+    unit = c(
+      "months",
+      "count",
+      rep("months", length(probs))
+    ),
+    source = "outcome 1 only",
+    stringsAsFactors = FALSE
+  )
+  
+  source.table <- data.frame(
+    dataset_id = dataset.id,
+    threshold_rule = "user candidates + data-driven event-time-difference quantiles",
+    candidate_months = if (length(candidate) == 0) "" else paste(candidate, collapse = ", "),
+    data_driven_probs = if (length(probs) == 0) "" else paste(sprintf("%.2f", probs), collapse = ", "),
+    data_driven_months = if (length(data.priority) == 0) "" else paste(data.priority, collapse = ", "),
+    final_threshold_months = paste(selected, collapse = ", "),
+    rule = paste(
+      "Data-driven candidates are percentiles of absolute pairwise differences",
+      "between observed outcome-1 event times. Censored follow-up and lower-priority",
+      "endpoint information are not used to generate the data-driven candidates."
+    ),
+    stringsAsFactors = FALSE
+  )
+  
+  list(
+    t.grid = selected / 12,
+    threshold.table = threshold.table,
+    diagnostics = diagnostics,
+    source.table = source.table,
+    candidate.months = candidate,
+    data.driven.months = data.priority,
+    data.driven.probs = probs,
+    mode = "candidate_plus_data_driven"
+  )
+}
+
+# Extra C++ core for the two threshold-combination methods. This follows the
+# same pairwise comparison and censoring logic as fast_wr_core_revised_cpp().
+Rcpp::sourceCpp(code = '
+  // [[Rcpp::plugins(cpp11)]]
+  #include <Rcpp.h>
+  #include <vector>
+  #include <cmath>
+  using namespace Rcpp;
+
+  int final_count_hosp_until_cpp(const NumericVector& hosp_times,
+                                 const IntegerVector& hosp_start,
+                                 const IntegerVector& hosp_len,
+                                 int idx,
+                                 double t) {
+    int len = hosp_len[idx];
+    if (len <= 0) return 0;
+    int start = hosp_start[idx];
+    int lo = 0;
+    int hi = len;
+    while (lo < hi) {
+      int mid = lo + (hi - lo) / 2;
+      if (hosp_times[start + mid] <= t) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  }
+
+  // [[Rcpp::export]]
+  List final_threshold_combo_core_cpp(NumericVector futime,
+                                      IntegerVector cnsr,
+                                      IntegerVector arm,
+                                      NumericVector hosp_times,
+                                      IntegerVector hosp_start,
+                                      IntegerVector hosp_len,
+                                      NumericVector t_grid) {
+    int n = futime.size();
+    std::vector<int> trt;
+    std::vector<int> ctrl;
+
+    for (int i = 0; i < n; ++i) {
+      if (arm[i] == 1) trt.push_back(i);
+      if (arm[i] == 0) ctrl.push_back(i);
+    }
+
+    int n_trt = trt.size();
+    int n_ctrl = ctrl.size();
+    double total_pairs = static_cast<double>(n_trt) * static_cast<double>(n_ctrl);
+    if (total_pairs <= 0) stop("Need at least one treatment patient and one control patient.");
+
+    int K = t_grid.size();
+    NumericVector df_first_win(K), df_first_loss(K), df_second_win(K), df_second_loss(K);
+    NumericVector hf_first_win(K), hf_first_loss(K), hf_second_win(K), hf_second_loss(K);
+
+    for (int ii = 0; ii < n_trt; ++ii) {
+      int pt1 = trt[ii];
+      double fu1 = futime[pt1];
+      int c1_original = cnsr[pt1];
+
+      for (int jj = 0; jj < n_ctrl; ++jj) {
+        int pt2 = ctrl[jj];
+        double fu2 = futime[pt2];
+        int c2_original = cnsr[pt2];
+        double min_fu = fu1 < fu2 ? fu1 : fu2;
+
+        int hosp1 = final_count_hosp_until_cpp(hosp_times, hosp_start, hosp_len, pt1, min_fu);
+        int hosp2 = final_count_hosp_until_cpp(hosp_times, hosp_start, hosp_len, pt2, min_fu);
+
+        int hosp_sign = 0;
+        if (hosp2 > hosp1) hosp_sign = 1;
+        else if (hosp2 < hosp1) hosp_sign = -1;
+
+        int c1 = c1_original;
+        int c2 = c2_original;
+        if (fu1 < fu2) c2 = 0;
+        if (fu2 < fu1) c1 = 0;
+
+        int death_sign = 0;
+        if (c1 == 0 && c2 == 1) death_sign = 1;
+        else if (c1 == 1 && c2 == 0) death_sign = -1;
+
+        double abs_diff = std::fabs(fu1 - fu2);
+
+        for (int kk = 0; kk < K; ++kk) {
+          int death_thr_sign = 0;
+          // The manuscript rule is |Delta survival| > t, not >= t.
+          if (death_sign != 0 && abs_diff > t_grid[kk]) {
+            death_thr_sign = death_sign;
+          }
+
+          // Death-first, threshold applied to outcome 1.
+          if (death_thr_sign > 0) df_first_win[kk] += 1.0;
+          else if (death_thr_sign < 0) df_first_loss[kk] += 1.0;
+          else if (hosp_sign > 0) df_second_win[kk] += 1.0;
+          else if (hosp_sign < 0) df_second_loss[kk] += 1.0;
+
+          // Hospitalization-first; threshold still follows the death/survival
+          // endpoint and is used only when hospitalization does not resolve the pair.
+          if (hosp_sign > 0) hf_first_win[kk] += 1.0;
+          else if (hosp_sign < 0) hf_first_loss[kk] += 1.0;
+          else if (death_thr_sign > 0) hf_second_win[kk] += 1.0;
+          else if (death_thr_sign < 0) hf_second_loss[kk] += 1.0;
+        }
+      }
+    }
+
+    return List::create(
+      Named("total_pairs") = total_pairs,
+      Named("t_grid") = t_grid,
+      Named("df_first_win") = df_first_win,
+      Named("df_first_loss") = df_first_loss,
+      Named("df_second_win") = df_second_win,
+      Named("df_second_loss") = df_second_loss,
+      Named("hf_first_win") = hf_first_win,
+      Named("hf_first_loss") = hf_first_loss,
+      Named("hf_second_win") = hf_second_win,
+      Named("hf_second_loss") = hf_second_loss
+    );
+  }
+')
+
+final.make.candidate.row <- function(order,
+                                     p,
+                                     candidate.type,
+                                     t,
+                                     first.win,
+                                     first.loss,
+                                     second.win,
+                                     second.loss,
+                                     total.pairs) {
+  win.score <- p * first.win + (1 - p) * second.win
+  loss.score <- p * first.loss + (1 - p) * second.loss
+  
+  # Keep the same effective tie convention as the WO simulation.
+  # For p=1, only the first tier contributes; otherwise both tiers contribute.
+  if (abs(p - 1) < 1e-12) {
+    win.pairs <- first.win
+    loss.pairs <- first.loss
+  } else {
+    win.pairs <- first.win + second.win
+    loss.pairs <- first.loss + second.loss
+  }
+  tie.count <- total.pairs - win.pairs - loss.pairs
+  
+  wr <- safe_wr(win.score, loss.score, total.pairs)
+  wo <- final.wo(win.pairs, loss.pairs, tie.count)
+  
+  data.frame(
+    candidate_type = candidate.type,
+    order = order,
+    p = p,
+    t = t,
+    t_months = t * 12,
+    first_win = first.win,
+    first_loss = first.loss,
+    second_win = second.win,
+    second_loss = second.loss,
+    win_score = win.score,
+    loss_score = loss.score,
+    win_pairs = win.pairs,
+    loss_pairs = loss.pairs,
+    tie_count = tie.count,
+    tie_proportion = tie.count / total.pairs,
+    WR = wr,
+    WO = wo,
+    total_pairs = total.pairs,
+    stringsAsFactors = FALSE
+  )
+}
+
+build.final.WR.WO.candidates <- function(ds,
+                                         p.grid = FINAL_P_VALUES,
+                                         t.grid = numeric(0)) {
+  if (is.null(ds$hosp.flat)) ds <- prepare.ds.fast(ds)
+  tab <- ds$table.output
+  p.grid <- sort(unique(as.numeric(p.grid)))
+  p.grid <- p.grid[is.finite(p.grid) & p.grid >= 0.5 & p.grid <= 1]
+  if (!any(abs(p.grid - 0.5) < 1e-12)) p.grid <- sort(unique(c(0.5, p.grid)))
+  if (!any(abs(p.grid - 1.0) < 1e-12)) p.grid <- sort(unique(c(p.grid, 1.0)))
+  
+  # Base hierarchy counts do not depend on the threshold grid.
+  core <- fast_wr_core_revised_cpp(
+    futime = as.numeric(tab$FUTIME),
+    cnsr = as.integer(tab$CNSR),
+    arm = as.integer(tab$ARM),
+    hosp_times = as.numeric(ds$hosp.flat),
+    hosp_start = as.integer(ds$hosp.start),
+    hosp_len = as.integer(ds$hosp.len),
+    p_grid = as.numeric(p.grid),
+    t_grid = if (length(t.grid) > 0) as.numeric(t.grid) else 0,
+    eps = EPS_WR
+  )
+  
+  total.pairs <- as.numeric(core$total_pairs)
+  rows <- list()
+  rr <- 0L
+  
+  for (p in p.grid) {
+    rr <- rr + 1L
+    rows[[rr]] <- final.make.candidate.row(
+      "death_first", p, "base", 0,
+      as.numeric(core$D1_win), as.numeric(core$D1_loss),
+      as.numeric(core$H2_win), as.numeric(core$H2_loss),
+      total.pairs
+    )
+    
+    rr <- rr + 1L
+    rows[[rr]] <- final.make.candidate.row(
+      "hospitalization_first", p, "base", 0,
+      as.numeric(core$H1_win), as.numeric(core$H1_loss),
+      as.numeric(core$D2_win), as.numeric(core$D2_loss),
+      total.pairs
+    )
+  }
+  
+  if (length(t.grid) > 0) {
+    thr <- final_threshold_combo_core_cpp(
+      futime = as.numeric(tab$FUTIME),
+      cnsr = as.integer(tab$CNSR),
+      arm = as.integer(tab$ARM),
+      hosp_times = as.numeric(ds$hosp.flat),
+      hosp_start = as.integer(ds$hosp.start),
+      hosp_len = as.integer(ds$hosp.len),
+      t_grid = as.numeric(t.grid)
+    )
+    
+    t.vec <- as.numeric(thr$t_grid)
+    for (kk in seq_along(t.vec)) {
+      for (p in p.grid) {
+        rr <- rr + 1L
+        rows[[rr]] <- final.make.candidate.row(
+          "death_first", p, "threshold", t.vec[kk],
+          as.numeric(thr$df_first_win[kk]), as.numeric(thr$df_first_loss[kk]),
+          as.numeric(thr$df_second_win[kk]), as.numeric(thr$df_second_loss[kk]),
+          total.pairs
+        )
+        
+        rr <- rr + 1L
+        rows[[rr]] <- final.make.candidate.row(
+          "hospitalization_first", p, "threshold", t.vec[kk],
+          as.numeric(thr$hf_first_win[kk]), as.numeric(thr$hf_first_loss[kk]),
+          as.numeric(thr$hf_second_win[kk]), as.numeric(thr$hf_second_loss[kk]),
+          total.pairs
+        )
+      }
+    }
+  }
+  
+  out <- do.call(rbind, rows)
+  out$log_WR <- final.log.ratio(out$WR)
+  out$abs_log_WR <- final.abslog.ratio(out$WR)
+  out$log_WO <- final.log.ratio(out$WO)
+  out$abs_log_WO <- final.abslog.ratio(out$WO)
+  out$candidate_key <- paste(
+    out$candidate_type,
+    out$order,
+    sprintf("%.10f", out$p),
+    sprintf("%.10f", out$t),
+    sep = "__"
+  )
+  rownames(out) <- NULL
+  out
+}
+
+subset.final.method <- function(candidates, method) {
+  is05 <- abs(candidates$p - 0.50) < 1e-10
+  
+  if (method == "fixed_12") {
+    return(candidates[candidates$candidate_type == "base" &
+                        candidates$order == "death_first" & is05, , drop = FALSE])
+  }
+  if (method == "fixed_21") {
+    return(candidates[candidates$candidate_type == "base" &
+                        candidates$order == "hospitalization_first" & is05, , drop = FALSE])
+  }
+  if (method == "M_wt_0.5") {
+    return(candidates[candidates$candidate_type == "base" &
+                        candidates$order == "death_first" &
+                        candidates$p >= 0.50 & candidates$p <= 1.00, , drop = FALSE])
+  }
+  if (method == "M_ord") {
+    return(candidates[candidates$candidate_type == "base" & is05, , drop = FALSE])
+  }
+  if (method == "M_thresh") {
+    return(candidates[candidates$candidate_type == "threshold" &
+                        candidates$order == "death_first" & is05, , drop = FALSE])
+  }
+  if (method == "M_wt_thresh_0.5") {
+    return(candidates[candidates$candidate_type == "threshold" &
+                        candidates$order == "death_first" &
+                        candidates$p >= 0.50 & candidates$p <= 1.00, , drop = FALSE])
+  }
+  if (method == "M_ord_thresh") {
+    return(candidates[candidates$candidate_type == "threshold" & is05, , drop = FALSE])
+  }
+  if (method == "M_ordwt_0.5") {
+    return(candidates[candidates$candidate_type == "base" &
+                        candidates$p >= 0.50 & candidates$p <= 1.00, , drop = FALSE])
+  }
+  
+  candidates[FALSE, , drop = FALSE]
+}
+
+select.final.method <- function(candidates,
+                                method,
+                                measure = c("WR", "WO"),
+                                side = c("one", "two")) {
+  measure <- match.arg(measure)
+  side <- match.arg(side)
+  d <- subset.final.method(candidates, method)
+  
+  if (nrow(d) == 0) {
+    return(data.frame(
+      measure = measure,
+      method = method,
+      method_label = final.method.label(method, measure),
+      side = side,
+      selected_order = NA_character_,
+      selected_p = NA_real_,
+      selected_t = NA_real_,
+      selected_t_months = NA_real_,
+      selected_value = NA_real_,
+      selected_statistic = NA_real_,
+      selected_log_value = NA_real_,
+      selected_abs_log_value = NA_real_,
+      selected_direction = NA_character_,
+      selected_WR = NA_real_,
+      selected_WO = NA_real_,
+      win_score = NA_real_,
+      loss_score = NA_real_,
+      win_pairs = NA_real_,
+      loss_pairs = NA_real_,
+      tie_count = NA_real_,
+      tie_proportion = NA_real_,
+      candidate_key = NA_character_,
+      stringsAsFactors = FALSE
+    ))
+  }
+  
+  ratio <- if (measure == "WR") d$WR else d$WO
+  log.ratio <- if (measure == "WR") d$log_WR else d$log_WO
+  abslog.ratio <- if (measure == "WR") d$abs_log_WR else d$abs_log_WO
+  score <- if (side == "one") ratio else abslog.ratio
+  score[is.na(score)] <- -Inf
+  
+  k <- which.max(score)
+  z <- d[k, , drop = FALSE]
+  
+  data.frame(
+    measure = measure,
+    method = method,
+    method_label = final.method.label(method, measure),
+    side = side,
+    selected_order = as.character(z$order[1]),
+    selected_p = as.numeric(z$p[1]),
+    selected_t = as.numeric(z$t[1]),
+    selected_t_months = as.numeric(z$t_months[1]),
+    selected_value = as.numeric(ratio[k]),
+    selected_statistic = as.numeric(score[k]),
+    selected_log_value = as.numeric(log.ratio[k]),
+    selected_abs_log_value = as.numeric(abslog.ratio[k]),
+    selected_direction = ifelse(
+      is.finite(log.ratio[k]) && log.ratio[k] >= 0,
+      "upper_benefit",
+      ifelse(is.finite(log.ratio[k]) && log.ratio[k] < 0, "lower_harm", NA_character_)
+    ),
+    selected_WR = as.numeric(z$WR[1]),
+    selected_WO = as.numeric(z$WO[1]),
+    win_score = as.numeric(z$win_score[1]),
+    loss_score = as.numeric(z$loss_score[1]),
+    win_pairs = as.numeric(z$win_pairs[1]),
+    loss_pairs = as.numeric(z$loss_pairs[1]),
+    tie_count = as.numeric(z$tie_count[1]),
+    tie_proportion = as.numeric(z$tie_proportion[1]),
+    candidate_key = as.character(z$candidate_key[1]),
+    stringsAsFactors = FALSE
+  )
+}
+
+select.final.all <- function(candidates, side = c("one", "two")) {
+  side <- match.arg(side)
+  out <- list()
+  rr <- 0L
+  for (measure in c("WR", "WO")) {
+    for (method in FINAL_PAIRWISE_METHODS) {
+      rr <- rr + 1L
+      out[[rr]] <- select.final.method(candidates, method, measure, side)
+    }
+  }
+  out <- do.call(rbind, out)
+  rownames(out) <- NULL
+  out
+}
+
+evaluate.final.fixed <- function(candidates,
+                                 selected.row,
+                                 side = c("one", "two")) {
+  side <- match.arg(side)
+  key <- as.character(selected.row$candidate_key[1])
+  measure <- as.character(selected.row$measure[1])
+  method <- as.character(selected.row$method[1])
+  d <- candidates[candidates$candidate_key == key, , drop = FALSE]
+  
+  if (nrow(d) == 0) {
+    return(select.final.method(candidates[FALSE, , drop = FALSE], method, measure, side))
+  }
+  
+  ratio <- if (measure == "WR") d$WR[1] else d$WO[1]
+  log.ratio <- if (measure == "WR") d$log_WR[1] else d$log_WO[1]
+  abslog.ratio <- if (measure == "WR") d$abs_log_WR[1] else d$abs_log_WO[1]
+  stat <- if (side == "one") ratio else abslog.ratio
+  
+  data.frame(
+    measure = measure,
+    method = method,
+    method_label = final.method.label(method, measure),
+    side = side,
+    selected_order = as.character(d$order[1]),
+    selected_p = as.numeric(d$p[1]),
+    selected_t = as.numeric(d$t[1]),
+    selected_t_months = as.numeric(d$t_months[1]),
+    selected_value = as.numeric(ratio),
+    selected_statistic = as.numeric(stat),
+    selected_log_value = as.numeric(log.ratio),
+    selected_abs_log_value = as.numeric(abslog.ratio),
+    selected_direction = ifelse(
+      is.finite(log.ratio) && log.ratio >= 0,
+      "upper_benefit",
+      ifelse(is.finite(log.ratio) && log.ratio < 0, "lower_harm", NA_character_)
+    ),
+    selected_WR = as.numeric(d$WR[1]),
+    selected_WO = as.numeric(d$WO[1]),
+    win_score = as.numeric(d$win_score[1]),
+    loss_score = as.numeric(d$loss_score[1]),
+    win_pairs = as.numeric(d$win_pairs[1]),
+    loss_pairs = as.numeric(d$loss_pairs[1]),
+    tie_count = as.numeric(d$tie_count[1]),
+    tie_proportion = as.numeric(d$tie_proportion[1]),
+    candidate_key = as.character(d$candidate_key[1]),
+    stringsAsFactors = FALSE
+  )
+}
+
+final.logrank.outcome1 <- function(ds) {
+  tab <- ds$table.output
+  dat <- tab[is.finite(tab$FUTIME) & !is.na(tab$CNSR) & !is.na(tab$ARM), , drop = FALSE]
+  
+  if (nrow(dat) == 0 || length(unique(dat$ARM)) < 2) {
+    return(data.frame(
+      method = "logrank_outcome1",
+      endpoint = "outcome 1",
+      chisq = NA_real_,
+      z = NA_real_,
+      HR = NA_real_,
+      p_value_one_sided = NA_real_,
+      p_value_two_sided = NA_real_,
+      stringsAsFactors = FALSE
+    ))
+  }
+  
+  f <- survival::Surv(FUTIME, CNSR) ~ ARM
+  lr <- tryCatch(survival::survdiff(f, data = dat), error = function(e) NULL)
+  fit <- tryCatch(survival::coxph(f, data = dat), error = function(e) NULL)
+  
+  chisq <- if (is.null(lr)) NA_real_ else as.numeric(lr$chisq)
+  z <- NA_real_
+  hr <- NA_real_
+  
+  if (!is.null(fit)) {
+    sm <- tryCatch(summary(fit), error = function(e) NULL)
+    if (!is.null(sm) && nrow(sm$coef) >= 1) {
+      z <- as.numeric(sm$coef[1, "z"])
+      hr <- exp(as.numeric(sm$coef[1, "coef"]))
+    }
+  }
+  
+  p.one <- if (is.finite(z)) stats::pnorm(z) else NA_real_
+  p.two <- if (is.finite(z)) 2 * stats::pnorm(-abs(z)) else
+    if (is.finite(chisq)) stats::pchisq(chisq, df = 1, lower.tail = FALSE) else NA_real_
+  
+  data.frame(
+    method = "logrank_outcome1",
+    endpoint = "outcome 1",
+    chisq = chisq,
+    z = z,
+    HR = hr,
+    p_value_one_sided = p.one,
+    p_value_two_sided = p.two,
+    stringsAsFactors = FALSE
+  )
+}
+
+final.permutation.batch.file <- function(outdir, cache.prefix, bb, start.b, end.b) {
+  batch.dir <- file.path(outdir, paste0(cache.prefix, "_FINAL_WR_WO_permutation_batches"))
+  if (!dir.exists(batch.dir)) dir.create(batch.dir, recursive = TRUE)
+  list(
+    dir = batch.dir,
+    file = file.path(batch.dir, sprintf("perm_batch_%04d_%04d_to_%04d.rds", bb, start.b, end.b))
+  )
+}
+
+perm.test.final.WR.WO <- function(ds,
+                                  B = B_REAL_FINAL,
+                                  batch.size = BATCH_SIZE_REAL_FINAL,
+                                  seed = MASTER_SEED,
+                                  p.grid = FINAL_P_VALUES,
+                                  t.grid,
+                                  outdir = OUTDIR,
+                                  cache.prefix = "realdata",
+                                  resume = RESUME_FINAL_IF_EXISTS,
+                                  verbose = VERBOSE) {
+  ds <- prepare.ds.fast(ds)
+  obs.candidates <- build.final.WR.WO.candidates(ds, p.grid = p.grid, t.grid = t.grid)
+  
+  obs.one <- select.final.all(obs.candidates, side = "one")
+  obs.two <- select.final.all(obs.candidates, side = "two")
+  obs.rows <- rbind(obs.one, obs.two)
+  obs.rows$key <- paste(obs.rows$measure, obs.rows$method, obs.rows$side, sep = "__")
+  keys <- obs.rows$key
+  
+  T.obs <- obs.rows$selected_statistic
+  names(T.obs) <- keys
+  
+  # The fixed-selected candidate is the candidate chosen from the observed data.
+  fixed.one <- obs.one
+  fixed.two <- obs.two
+  
+  perm.stat <- matrix(NA_real_, nrow = B, ncol = length(keys), dimnames = list(NULL, keys))
+  perm.fixed.stat <- matrix(NA_real_, nrow = B, ncol = length(keys), dimnames = list(NULL, keys))
+  perm.tie.count <- matrix(NA_real_, nrow = B, ncol = length(keys), dimnames = list(NULL, keys))
+  perm.tie.pr <- matrix(NA_real_, nrow = B, ncol = length(keys), dimnames = list(NULL, keys))
+  perm.fixed.tie.count <- matrix(NA_real_, nrow = B, ncol = length(keys), dimnames = list(NULL, keys))
+  perm.fixed.tie.pr <- matrix(NA_real_, nrow = B, ncol = length(keys), dimnames = list(NULL, keys))
+  perm.selected.p <- matrix(NA_real_, nrow = B, ncol = length(keys), dimnames = list(NULL, keys))
+  perm.selected.t <- matrix(NA_real_, nrow = B, ncol = length(keys), dimnames = list(NULL, keys))
+  perm.selected.order <- matrix(NA_character_, nrow = B, ncol = length(keys), dimnames = list(NULL, keys))
+  
+  perm.seeds <- seed + seq_len(B) * 1009L
+  n.batch <- ceiling(B / batch.size)
+  
+  for (bb in seq_len(n.batch)) {
+    start.b <- (bb - 1L) * batch.size + 1L
+    end.b <- min(bb * batch.size, B)
+    idx <- start.b:end.b
+    info <- final.permutation.batch.file(outdir, cache.prefix, bb, start.b, end.b)
+    
+    if (resume && file.exists(info$file)) {
+      if (verbose) cat("Loading FINAL WR/WO batch", bb, "of", n.batch, "\n")
+      batch.out <- readRDS(info$file)
+    } else {
+      if (verbose) cat("Running FINAL WR/WO batch", bb, "of", n.batch,
+                       ": permutations", start.b, "to", end.b, "\n")
+      
+      n.idx <- length(idx)
+      batch.stat <- matrix(NA_real_, nrow = n.idx, ncol = length(keys), dimnames = list(NULL, keys))
+      batch.fixed <- matrix(NA_real_, nrow = n.idx, ncol = length(keys), dimnames = list(NULL, keys))
+      batch.tie <- matrix(NA_real_, nrow = n.idx, ncol = length(keys), dimnames = list(NULL, keys))
+      batch.tie.pr <- matrix(NA_real_, nrow = n.idx, ncol = length(keys), dimnames = list(NULL, keys))
+      batch.fixed.tie <- matrix(NA_real_, nrow = n.idx, ncol = length(keys), dimnames = list(NULL, keys))
+      batch.fixed.tie.pr <- matrix(NA_real_, nrow = n.idx, ncol = length(keys), dimnames = list(NULL, keys))
+      batch.p <- matrix(NA_real_, nrow = n.idx, ncol = length(keys), dimnames = list(NULL, keys))
+      batch.t <- matrix(NA_real_, nrow = n.idx, ncol = length(keys), dimnames = list(NULL, keys))
+      batch.order <- matrix(NA_character_, nrow = n.idx, ncol = length(keys), dimnames = list(NULL, keys))
+      
+      for (r in seq_along(idx)) {
+        b <- idx[r]
+        set.seed(perm.seeds[b])
+        ds.b <- ds
+        ds.b$table.output$ARM <- sample(ds$table.output$ARM, replace = FALSE)
+        
+        cand.b <- build.final.WR.WO.candidates(ds.b, p.grid = p.grid, t.grid = t.grid)
+        one.b <- select.final.all(cand.b, side = "one")
+        two.b <- select.final.all(cand.b, side = "two")
+        rows.b <- rbind(one.b, two.b)
+        rows.b$key <- paste(rows.b$measure, rows.b$method, rows.b$side, sep = "__")
+        rows.b <- rows.b[match(keys, rows.b$key), , drop = FALSE]
+        
+        fixed.rows <- vector("list", length(keys))
+        for (j in seq_along(keys)) {
+          obs.row <- obs.rows[j, , drop = FALSE]
+          fixed.rows[[j]] <- evaluate.final.fixed(cand.b, obs.row, side = as.character(obs.row$side))
+        }
+        fixed.rows <- do.call(rbind, fixed.rows)
+        fixed.rows$key <- paste(fixed.rows$measure, fixed.rows$method, fixed.rows$side, sep = "__")
+        fixed.rows <- fixed.rows[match(keys, fixed.rows$key), , drop = FALSE]
+        
+        batch.stat[r, ] <- rows.b$selected_statistic
+        batch.fixed[r, ] <- fixed.rows$selected_statistic
+        batch.tie[r, ] <- rows.b$tie_count
+        batch.tie.pr[r, ] <- rows.b$tie_proportion
+        batch.fixed.tie[r, ] <- fixed.rows$tie_count
+        batch.fixed.tie.pr[r, ] <- fixed.rows$tie_proportion
+        batch.p[r, ] <- rows.b$selected_p
+        batch.t[r, ] <- rows.b$selected_t_months
+        batch.order[r, ] <- rows.b$selected_order
+      }
+      
+      batch.out <- list(
+        idx = idx,
+        stat = batch.stat,
+        fixed = batch.fixed,
+        tie = batch.tie,
+        tie_pr = batch.tie.pr,
+        fixed_tie = batch.fixed.tie,
+        fixed_tie_pr = batch.fixed.tie.pr,
+        selected_p = batch.p,
+        selected_t = batch.t,
+        selected_order = batch.order
+      )
+      saveRDS(batch.out, info$file)
+    }
+    
+    perm.stat[idx, ] <- batch.out$stat
+    perm.fixed.stat[idx, ] <- batch.out$fixed
+    perm.tie.count[idx, ] <- batch.out$tie
+    perm.tie.pr[idx, ] <- batch.out$tie_pr
+    perm.fixed.tie.count[idx, ] <- batch.out$fixed_tie
+    perm.fixed.tie.pr[idx, ] <- batch.out$fixed_tie_pr
+    perm.selected.p[idx, ] <- batch.out$selected_p
+    perm.selected.t[idx, ] <- batch.out$selected_t
+    perm.selected.order[idx, ] <- batch.out$selected_order
+  }
+  
+  p.value.max <- sapply(keys, function(k) final.right.tail.p(perm.stat[, k], T.obs[k]))
+  p.value.fixed <- sapply(keys, function(k) final.right.tail.p(perm.fixed.stat[, k], T.obs[k]))
+  
+  obs.rows$permutation_p_value <- as.numeric(p.value.max[obs.rows$key])
+  obs.rows$fixed_selected_p_value <- as.numeric(p.value.fixed[obs.rows$key])
+  obs.rows$mean_perm_tie_count <- sapply(obs.rows$key, function(k) final.safe.mean(perm.tie.count[, k]))
+  obs.rows$mean_perm_tie_proportion <- sapply(obs.rows$key, function(k) final.safe.mean(perm.tie.pr[, k]))
+  obs.rows$mean_fixed_perm_tie_count <- sapply(obs.rows$key, function(k) final.safe.mean(perm.fixed.tie.count[, k]))
+  obs.rows$mean_fixed_perm_tie_proportion <- sapply(obs.rows$key, function(k) final.safe.mean(perm.fixed.tie.pr[, k]))
+  obs.rows$B <- B
+  
+  selection.summary <- do.call(rbind, lapply(keys, function(k) {
+    x.p <- perm.selected.p[, k]
+    x.t <- perm.selected.t[, k]
+    x.o <- perm.selected.order[, k]
+    data.frame(
+      key = k,
+      measure = strsplit(k, "__", fixed = TRUE)[[1]][1],
+      method = strsplit(k, "__", fixed = TRUE)[[1]][2],
+      side = strsplit(k, "__", fixed = TRUE)[[1]][3],
+      mode_selected_order = final.mode.string(x.o),
+      mean_selected_p = final.safe.mean(x.p),
+      pct_selected_p_1 = if (sum(is.finite(x.p)) == 0) NA_real_ else mean(abs(x.p[is.finite(x.p)] - 1) < 1e-10) * 100,
+      mean_selected_t_months = final.safe.mean(x.t),
+      mean_selected_tie_count = final.safe.mean(perm.tie.count[, k]),
+      mean_selected_tie_proportion = final.safe.mean(perm.tie.pr[, k]),
+      stringsAsFactors = FALSE
+    )
+  }))
+  
+  list(
+    observed_candidates = obs.candidates,
+    selected_rows = obs.rows,
+    selection_summary = selection.summary,
+    T.obs = T.obs,
+    T.perm = perm.stat,
+    T.perm.fixed = perm.fixed.stat,
+    T.perm.tie.count = perm.tie.count,
+    T.perm.tie.pr = perm.tie.pr,
+    T.perm.fixed.tie.count = perm.fixed.tie.count,
+    T.perm.fixed.tie.pr = perm.fixed.tie.pr,
+    p.value.max = p.value.max,
+    p.value.fixed = p.value.fixed,
+    B = B,
+    p.grid = p.grid,
+    t.grid = t.grid
+  )
+}
+
+make.final.method.table <- function(dataset.id,
+                                    dataset.label,
+                                    test.out,
+                                    logrank.outcome1,
+                                    alpha = FINAL_ALPHA) {
+  rows <- test.out$selected_rows
+  one <- rows[rows$side == "one", , drop = FALSE]
+  two <- rows[rows$side == "two", , drop = FALSE]
+  
+  id <- paste(one$measure, one$method, sep = "__")
+  two.id <- paste(two$measure, two$method, sep = "__")
+  two <- two[match(id, two.id), , drop = FALSE]
+  
+  pairwise <- data.frame(
+    dataset_id = dataset.id,
+    dataset_label = dataset.label,
+    measure = one$measure,
+    method = one$method,
+    method_label = mapply(final.method.label, one$method, one$measure, USE.NAMES = FALSE),
+    method_description = mapply(final.method.long.label, one$method, one$measure, USE.NAMES = FALSE),
+    p_value_source = "treatment-label permutation",
+    
+    observed_value_one_sided = one$selected_value,
+    selected_WR_one_sided = one$selected_WR,
+    selected_WO_one_sided = one$selected_WO,
+    observed_statistic_one_sided = one$selected_statistic,
+    selected_order_one_sided = one$selected_order,
+    selected_p_one_sided = one$selected_p,
+    selected_t_months_one_sided = one$selected_t_months,
+    win_score_one_sided = one$win_score,
+    loss_score_one_sided = one$loss_score,
+    win_pairs_one_sided = one$win_pairs,
+    loss_pairs_one_sided = one$loss_pairs,
+    tie_count_one_sided = one$tie_count,
+    tie_proportion_one_sided = one$tie_proportion,
+    permutation_p_value_one_sided = one$permutation_p_value,
+    fixed_selected_p_value_one_sided = one$fixed_selected_p_value,
+    rejected_one_sided = one$permutation_p_value < alpha,
+    mean_perm_tie_count_one_sided = one$mean_perm_tie_count,
+    mean_perm_tie_proportion_one_sided = one$mean_perm_tie_proportion,
+    mean_fixed_perm_tie_count_one_sided = one$mean_fixed_perm_tie_count,
+    mean_fixed_perm_tie_proportion_one_sided = one$mean_fixed_perm_tie_proportion,
+    
+    observed_value_two_sided = two$selected_value,
+    selected_WR_two_sided = two$selected_WR,
+    selected_WO_two_sided = two$selected_WO,
+    observed_statistic_two_sided = two$selected_statistic,
+    observed_log_value_two_sided = two$selected_log_value,
+    observed_abs_log_value_two_sided = two$selected_abs_log_value,
+    two_sided_tail_direction = two$selected_direction,
+    selected_order_two_sided = two$selected_order,
+    selected_p_two_sided = two$selected_p,
+    selected_t_months_two_sided = two$selected_t_months,
+    win_score_two_sided = two$win_score,
+    loss_score_two_sided = two$loss_score,
+    win_pairs_two_sided = two$win_pairs,
+    loss_pairs_two_sided = two$loss_pairs,
+    tie_count_two_sided = two$tie_count,
+    tie_proportion_two_sided = two$tie_proportion,
+    permutation_p_value_two_sided = two$permutation_p_value,
+    fixed_selected_p_value_two_sided = two$fixed_selected_p_value,
+    rejected_two_sided = two$permutation_p_value < alpha,
+    mean_perm_tie_count_two_sided = two$mean_perm_tie_count,
+    mean_perm_tie_proportion_two_sided = two$mean_perm_tie_proportion,
+    mean_fixed_perm_tie_count_two_sided = two$mean_fixed_perm_tie_count,
+    mean_fixed_perm_tie_proportion_two_sided = two$mean_fixed_perm_tie_proportion,
+    
+    B = test.out$B,
+    stringsAsFactors = FALSE
+  )
+  
+  # Duplicate the same outcome-1 log-rank reference under WR and WO so the
+  # real-data output matches the method rows displayed in both simulation panels.
+  lr.rows <- do.call(rbind, lapply(c("WR", "WO"), function(measure) {
+    data.frame(
+      dataset_id = dataset.id,
+      dataset_label = dataset.label,
+      measure = measure,
+      method = "logrank_outcome1",
+      method_label = "Log-rank (outcome 1)",
+      method_description = "Log-rank reference for outcome 1 only",
+      p_value_source = "Cox/log-rank asymptotic reference",
+      
+      observed_value_one_sided = NA_real_,
+      selected_WR_one_sided = NA_real_,
+      selected_WO_one_sided = NA_real_,
+      observed_statistic_one_sided = logrank.outcome1$z[1],
+      selected_order_one_sided = NA_character_,
+      selected_p_one_sided = NA_real_,
+      selected_t_months_one_sided = NA_real_,
+      win_score_one_sided = NA_real_,
+      loss_score_one_sided = NA_real_,
+      win_pairs_one_sided = NA_real_,
+      loss_pairs_one_sided = NA_real_,
+      tie_count_one_sided = NA_real_,
+      tie_proportion_one_sided = NA_real_,
+      permutation_p_value_one_sided = logrank.outcome1$p_value_one_sided[1],
+      fixed_selected_p_value_one_sided = NA_real_,
+      rejected_one_sided = logrank.outcome1$p_value_one_sided[1] < alpha,
+      mean_perm_tie_count_one_sided = NA_real_,
+      mean_perm_tie_proportion_one_sided = NA_real_,
+      mean_fixed_perm_tie_count_one_sided = NA_real_,
+      mean_fixed_perm_tie_proportion_one_sided = NA_real_,
+      
+      observed_value_two_sided = NA_real_,
+      selected_WR_two_sided = NA_real_,
+      selected_WO_two_sided = NA_real_,
+      observed_statistic_two_sided = logrank.outcome1$chisq[1],
+      observed_log_value_two_sided = NA_real_,
+      observed_abs_log_value_two_sided = NA_real_,
+      two_sided_tail_direction = NA_character_,
+      selected_order_two_sided = NA_character_,
+      selected_p_two_sided = NA_real_,
+      selected_t_months_two_sided = NA_real_,
+      win_score_two_sided = NA_real_,
+      loss_score_two_sided = NA_real_,
+      win_pairs_two_sided = NA_real_,
+      loss_pairs_two_sided = NA_real_,
+      tie_count_two_sided = NA_real_,
+      tie_proportion_two_sided = NA_real_,
+      permutation_p_value_two_sided = logrank.outcome1$p_value_two_sided[1],
+      fixed_selected_p_value_two_sided = NA_real_,
+      rejected_two_sided = logrank.outcome1$p_value_two_sided[1] < alpha,
+      mean_perm_tie_count_two_sided = NA_real_,
+      mean_perm_tie_proportion_two_sided = NA_real_,
+      mean_fixed_perm_tie_count_two_sided = NA_real_,
+      mean_fixed_perm_tie_proportion_two_sided = NA_real_,
+      
+      B = NA_integer_,
+      stringsAsFactors = FALSE
+    )
+  }))
+  
+  out <- rbind(pairwise, lr.rows)
+  rownames(out) <- NULL
+  out
+}
+
+make.final.compact.table <- function(method.table) {
+  keep <- c(
+    "dataset_id", "dataset_label", "measure", "method", "method_label", "p_value_source",
+    "observed_value_one_sided", "selected_WR_one_sided", "selected_WO_one_sided",
+    "permutation_p_value_one_sided",
+    "fixed_selected_p_value_one_sided", "selected_order_one_sided",
+    "selected_p_one_sided", "selected_t_months_one_sided",
+    "tie_count_one_sided", "tie_proportion_one_sided",
+    "mean_perm_tie_count_one_sided", "mean_perm_tie_proportion_one_sided",
+    "mean_fixed_perm_tie_count_one_sided", "mean_fixed_perm_tie_proportion_one_sided",
+    "observed_value_two_sided", "selected_WR_two_sided", "selected_WO_two_sided",
+    "permutation_p_value_two_sided",
+    "fixed_selected_p_value_two_sided", "two_sided_tail_direction",
+    "selected_order_two_sided", "selected_p_two_sided",
+    "selected_t_months_two_sided", "tie_count_two_sided",
+    "tie_proportion_two_sided", "mean_perm_tie_count_two_sided",
+    "mean_perm_tie_proportion_two_sided", "mean_fixed_perm_tie_count_two_sided",
+    "mean_fixed_perm_tie_proportion_two_sided"
+  )
+  method.table[, keep, drop = FALSE]
+}
+
+plot.final.realdata.methods <- function(method.table, outdir, prefix, measure = c("WR", "WO")) {
+  measure <- match.arg(measure)
+  d <- method.table[method.table$measure == measure, , drop = FALSE]
+  method.order <- c(
+    "fixed_12", "fixed_21", "M_wt_0.5", "M_ord", "M_thresh",
+    "M_wt_thresh_0.5", "M_ord_thresh", "M_ordwt_0.5", "logrank_outcome1"
+  )
+  d <- d[match(method.order, d$method), , drop = FALSE]
+  labels <- d$method_label
+  
+  for (side in c("one_sided", "two_sided")) {
+    pcol <- paste0("permutation_p_value_", side)
+    vals <- as.numeric(d[[pcol]])
+    
+    save_png(
+      outdir,
+      paste0(prefix, "_FINAL_", measure, "_", side, "_pvalues.png"),
+      width = 2200,
+      height = 1250
+    )
+    old.par <- par(no.readonly = TRUE)
+    par(mar = c(8.8, 5.2, 3.2, 1.2))
+    bp <- barplot(
+      vals,
+      names.arg = labels,
+      las = 2,
+      ylim = c(0, 1),
+      ylab = "p-value",
+      main = paste0(measure, ": ", gsub("_", "-", side), " results"),
+      cex.names = 0.78
+    )
+    abline(h = FINAL_ALPHA, lty = 2, lwd = 2)
+    text(bp, pmin(vals + 0.035, 0.97), labels = ifelse(is.na(vals), "", sprintf("%.3f", vals)), cex = 0.68)
+    par(old.par)
+    dev.off()
+  }
+}
+
+run.one.real.dataset.final.WR.WO <- function(registry.row,
+                                             B = B_REAL_FINAL,
+                                             batch.size = BATCH_SIZE_REAL_FINAL,
+                                             outdir = OUTDIR,
+                                             seed = MASTER_SEED,
+                                             verbose = VERBOSE) {
+  dataset.id <- sanitize_id(row_value(registry.row, "dataset_id", "realdata"))
+  dataset.label <- dataset.display.label(dataset.id, row_value(registry.row, "dataset_label", dataset.id))
+  dataset.outdir <- file.path(outdir, dataset.id)
+  if (!dir.exists(dataset.outdir)) dir.create(dataset.outdir, recursive = TRUE)
+  
+  cat("\n===== FINAL WR/WO real-data analysis:", dataset.label, "=====\n")
+  
+  ds <- load.real.dataset(registry.row)
+  ds <- prepare.ds.fast(ds)
+  
+  threshold.info <- choose.threshold.grid.final(
+    ds = ds,
+    dataset.id = dataset.id,
+    candidate.months = final.manual.thresholds(dataset.id),
+    max.K = MAX_T_GRID_SIZE,
+    probs = THRESHOLD_DATA_PROBS,
+    max.event.times = THRESHOLD_MAX_EVENT_TIMES,
+    data.seed = THRESHOLD_DATA_SEED
+  )
+  
+  test.out <- perm.test.final.WR.WO(
+    ds = ds,
+    B = B,
+    batch.size = batch.size,
+    seed = seed,
+    p.grid = FINAL_P_VALUES,
+    t.grid = threshold.info$t.grid,
+    outdir = dataset.outdir,
+    cache.prefix = dataset.id,
+    resume = RESUME_FINAL_IF_EXISTS,
+    verbose = verbose
+  )
+  
+  lr1 <- final.logrank.outcome1(ds)
+  comp.stats <- composite.statistics(ds)
+  
+  method.table <- make.final.method.table(
+    dataset.id = dataset.id,
+    dataset.label = dataset.label,
+    test.out = test.out,
+    logrank.outcome1 = lr1,
+    alpha = FINAL_ALPHA
+  )
+  compact.table <- make.final.compact.table(method.table)
+  
+  selection.summary <- test.out$selection_summary
+  selection.summary$dataset_id <- dataset.id
+  selection.summary$dataset_label <- dataset.label
+  selection.summary <- selection.summary[, c(
+    "dataset_id", "dataset_label",
+    setdiff(names(selection.summary), c("dataset_id", "dataset_label"))
+  ), drop = FALSE]
+  
+  observed.candidates <- test.out$observed_candidates
+  observed.candidates$dataset_id <- dataset.id
+  observed.candidates$dataset_label <- dataset.label
+  observed.candidates <- observed.candidates[, c(
+    "dataset_id", "dataset_label",
+    setdiff(names(observed.candidates), c("dataset_id", "dataset_label"))
+  ), drop = FALSE]
+  
+  write.csv(ds$import.note,
+            file.path(dataset.outdir, paste0(dataset.id, "_FINAL_import_summary.csv")),
+            row.names = FALSE)
+  write.csv(threshold.info$diagnostics,
+            file.path(dataset.outdir, paste0(dataset.id, "_FINAL_threshold_diagnostics_first_endpoint_only.csv")),
+            row.names = FALSE)
+  write.csv(threshold.info$threshold.table,
+            file.path(dataset.outdir, paste0(dataset.id, "_FINAL_threshold_grid_selected.csv")),
+            row.names = FALSE)
+  write.csv(threshold.info$source.table,
+            file.path(dataset.outdir, paste0(dataset.id, "_FINAL_threshold_candidate_sources.csv")),
+            row.names = FALSE)
+  write.csv(lr1,
+            file.path(dataset.outdir, paste0(dataset.id, "_FINAL_logrank_outcome1.csv")),
+            row.names = FALSE)
+  write.csv(comp.stats,
+            file.path(dataset.outdir, paste0(dataset.id, "_FINAL_data_summary.csv")),
+            row.names = FALSE)
+  
+  write.csv(method.table,
+            file.path(dataset.outdir, paste0(dataset.id, "_FINAL_WR_WO_all_methods_results.csv")),
+            row.names = FALSE)
+  write.csv(method.table[method.table$measure == "WR", , drop = FALSE],
+            file.path(dataset.outdir, paste0(dataset.id, "_FINAL_WR_methods_results.csv")),
+            row.names = FALSE)
+  write.csv(method.table[method.table$measure == "WO", , drop = FALSE],
+            file.path(dataset.outdir, paste0(dataset.id, "_FINAL_WO_methods_results.csv")),
+            row.names = FALSE)
+  write.csv(compact.table,
+            file.path(dataset.outdir, paste0(dataset.id, "_FINAL_WR_WO_compact_report.csv")),
+            row.names = FALSE)
+  write.csv(selection.summary,
+            file.path(dataset.outdir, paste0(dataset.id, "_FINAL_permutation_selection_summary.csv")),
+            row.names = FALSE)
+  write.csv(observed.candidates,
+            file.path(dataset.outdir, paste0(dataset.id, "_FINAL_observed_candidate_grid_WR_WO.csv")),
+            row.names = FALSE)
+  
+  plot.final.realdata.methods(method.table, dataset.outdir, dataset.id, "WR")
+  plot.final.realdata.methods(method.table, dataset.outdir, dataset.id, "WO")
+  
+  saveRDS(
+    list(
+      ds = ds,
+      threshold.info = threshold.info,
+      test.out = test.out,
+      logrank.outcome1 = lr1,
+      data.summary = comp.stats,
+      method.table = method.table,
+      compact.table = compact.table,
+      selection.summary = selection.summary,
+      observed.candidates = observed.candidates
+    ),
+    file.path(dataset.outdir, paste0(dataset.id, "_FINAL_full_results_bundle.rds"))
+  )
+  
+  list(
+    dataset_id = dataset.id,
+    dataset_label = dataset.label,
+    method = method.table,
+    compact = compact.table,
+    selection = selection.summary,
+    threshold = threshold.info,
+    logrank = lr1,
+    data.summary = comp.stats
+  )
+}
+
+run.all.real.datasets.final.WR.WO <- function(dataset.registry = REAL_DATASETS,
+                                              B = B_REAL_FINAL,
+                                              batch.size = BATCH_SIZE_REAL_FINAL,
+                                              outdir = OUTDIR,
+                                              master.seed = MASTER_SEED) {
+  if (!dir.exists(outdir)) dir.create(outdir, recursive = TRUE)
+  write.realdata.templates(outdir)
+  
+  dataset.registry$dataset_id <- sanitize_id(dataset.registry$dataset_id)
+  if (!("dataset_label" %in% names(dataset.registry))) {
+    dataset.registry$dataset_label <- dataset.registry$dataset_id
+  }
+  
+  write.csv(dataset.registry,
+            file.path(outdir, "FINAL_GLOBAL_realdata_registry.csv"),
+            row.names = FALSE)
+  
+  settings <- data.frame(
+    setting = c(
+      "B_REAL_FINAL", "BATCH_SIZE_REAL_FINAL", "MASTER_SEED", "ALPHA",
+      "FINAL_P_VALUES", "THRESHOLD_RULE", "THRESHOLD_CANDIDATE_MONTHS",
+      "THRESHOLD_DATA_PROBS", "THRESHOLD_MAX_EVENT_TIMES",
+      "methods", "WR_two_sided_statistic", "WO_two_sided_statistic",
+      "permutation_rule"
+    ),
+    value = c(
+      as.character(B),
+      as.character(batch.size),
+      as.character(master.seed),
+      as.character(FINAL_ALPHA),
+      paste(sprintf("%.2f", FINAL_P_VALUES), collapse = ", "),
+      "user candidates + data-driven event-time-difference quantiles",
+      paste(THRESHOLD_CANDIDATE_MONTHS, collapse = ", "),
+      paste(sprintf("%.2f", THRESHOLD_DATA_PROBS), collapse = ", "),
+      as.character(THRESHOLD_MAX_EVENT_TIMES),
+      paste(c(
+        "WR/WO", "WR/WO^ord(2,1)", "M_wt^0.5", "M_ord", "M_thresh",
+        "M_wt,thresh^0.5", "M_ord,thresh", "M_ord,wt^0.5",
+        "Log-rank outcome 1"
+      ), collapse = "; "),
+      "abs(log(WR))",
+      "abs(log(WO))",
+      "Adaptive order/weight/threshold selection is repeated inside every treatment-label permutation."
+    ),
+    stringsAsFactors = FALSE
+  )
+  write.csv(settings, file.path(outdir, "FINAL_GLOBAL_settings.csv"), row.names = FALSE)
+  
+  all.method <- data.frame()
+  all.compact <- data.frame()
+  all.selection <- data.frame()
+  all.logrank <- data.frame()
+  
+  for (i in seq_len(nrow(dataset.registry))) {
+    out.i <- run.one.real.dataset.final.WR.WO(
+      registry.row = dataset.registry[i, , drop = FALSE],
+      B = B,
+      batch.size = batch.size,
+      outdir = outdir,
+      seed = master.seed + i * 10000L,
+      verbose = VERBOSE
+    )
+    
+    all.method <- rbind_fill_base(all.method, out.i$method)
+    all.compact <- rbind_fill_base(all.compact, out.i$compact)
+    all.selection <- rbind_fill_base(all.selection, out.i$selection)
+    
+    lr <- out.i$logrank
+    lr$dataset_id <- out.i$dataset_id
+    lr$dataset_label <- out.i$dataset_label
+    lr <- lr[, c("dataset_id", "dataset_label", setdiff(names(lr), c("dataset_id", "dataset_label"))), drop = FALSE]
+    all.logrank <- rbind_fill_base(all.logrank, lr)
+    
+    write.csv(all.method,
+              file.path(outdir, "FINAL_GLOBAL_all_datasets_WR_WO_methods.csv"),
+              row.names = FALSE)
+    write.csv(all.compact,
+              file.path(outdir, "FINAL_GLOBAL_all_datasets_compact_report.csv"),
+              row.names = FALSE)
+    write.csv(all.selection,
+              file.path(outdir, "FINAL_GLOBAL_all_datasets_permutation_selection_summary.csv"),
+              row.names = FALSE)
+    write.csv(all.logrank,
+              file.path(outdir, "FINAL_GLOBAL_all_datasets_logrank_outcome1.csv"),
+              row.names = FALSE)
+  }
+  
+  manifest <- data.frame(file = list.files(outdir, recursive = TRUE), stringsAsFactors = FALSE)
+  write.csv(manifest, file.path(outdir, "FINAL_GLOBAL_output_manifest.csv"), row.names = FALSE)
+  
+  saveRDS(
+    list(
+      registry = dataset.registry,
+      method = all.method,
+      compact = all.compact,
+      selection = all.selection,
+      logrank = all.logrank,
+      settings = settings
+    ),
+    file.path(outdir, "FINAL_GLOBAL_full_results_bundle.rds")
+  )
+  
+  cat("\n===== FINAL WR/WO real-data analysis complete =====\n")
+  cat("Output folder:", outdir, "\n")
+  cat("Main files:\n")
+  cat("  FINAL_GLOBAL_all_datasets_WR_WO_methods.csv\n")
+  cat("  FINAL_GLOBAL_all_datasets_compact_report.csv\n")
+  cat("  FINAL_GLOBAL_all_datasets_permutation_selection_summary.csv\n")
+  cat("  FINAL_GLOBAL_all_datasets_logrank_outcome1.csv\n")
+  cat("  FINAL_GLOBAL_full_results_bundle.rds\n")
+  
+  invisible(list(
+    method = all.method,
+    compact = all.compact,
+    selection = all.selection,
+    logrank = all.logrank,
+    settings = settings
+  ))
+}
+
+# Final run block. The legacy AUTO_RUN block above is disabled by default so
+# this requested WR/WO analysis is not duplicated.
+if (isTRUE(AUTO_RUN_FINAL_WR_WO)) {
+  source.types <- if ("source_type" %in% names(REAL_DATASETS)) {
+    tolower(as.character(REAL_DATASETS$source_type))
+  } else {
+    rep("file", nrow(REAL_DATASETS))
+  }
+  
+  file.rows <- which(!(source.types %in% c("package", "r_package", "data")))
+  missing.files <- character(0)
+  if (length(file.rows) > 0 && "subject_file" %in% names(REAL_DATASETS)) {
+    candidate.files <- as.character(REAL_DATASETS$subject_file[file.rows])
+    missing.files <- candidate.files[candidate.files == "" | !file.exists(candidate.files)]
+  }
+  
+  if (length(missing.files) > 0) {
+    write.realdata.templates(OUTDIR)
+    cat("\nFINAL WR/WO code loaded, but subject_file path(s) were not found.\n")
+    cat("Edit REAL_DATASETS at the top of the script, then run:\n")
+    cat("out.final <- run.all.real.datasets.final.WR.WO()\n")
+    cat("Missing subject_file values:\n")
+    print(missing.files)
+  } else {
+    out.final <- run.all.real.datasets.final.WR.WO(
+      dataset.registry = REAL_DATASETS,
+      B = B_REAL_FINAL,
+      batch.size = BATCH_SIZE_REAL_FINAL,
+      outdir = OUTDIR,
+      master.seed = MASTER_SEED
+    )
+  }
+}
+
 
