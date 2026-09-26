@@ -3753,24 +3753,6 @@ cat("PARALLEL_TRIALS =", PARALLEL_TRIALS, "; N_WORKERS =", N_WORKERS,
 cat("Each worker is limited to 1 BLAS/OpenMP thread. Set N_WORKERS=1 or PARALLEL_TRIALS=FALSE to run serially.\n")
 
 
-# Final standalone run block
-if (!exists("RUN_FULL_SIMULATION")) {
-  RUN_FULL_SIMULATION <- !identical(Sys.getenv("RUN_FULL_SIMULATION"), "FALSE")
-}
-
-if (isTRUE(RUN_FULL_SIMULATION)) {
-  scenario.grid.current <- build.final.15.scenario.grid()
-  out <- run.all.scenarios.final(
-    scenario.grid = scenario.grid.current,
-    nsim = NSIM,
-    B = B_PERM,
-    outdir = OUTDIR,
-    master.seed = MASTER_SEED,
-    resume = RESUME_IF_EXISTS
-  )
-} else {
-  message("RUN_FULL_SIMULATION is FALSE: functions were loaded, but the full simulation was not started.")
-}
 
 
 
@@ -3780,8 +3762,6 @@ if (isTRUE(RUN_FULL_SIMULATION)) {
 WR_ORIGINAL_DIR <- ""
 WO_ORIGINAL_DIR <- ""
 OUTDIR_NEWMAX <- file.path(WO_ORIGINAL_DIR, "NEW_SIMULATIONS_two_missing_max_stats_WR_WO")
-
-dir.create(OUTDIR_NEWMAX, recursive = TRUE, showWarnings = FALSE)
 
 NSIM_NEWMAX <- 1000L
 B_PERM_NEWMAX <- 500L
@@ -4560,10 +4540,11 @@ make.newmax.cluster <- function(n.workers = N_WORKERS_NEWMAX) {
 }
 
 #output
-standardize_old_power_for_table <- function() {
+standardize_old_power_for_table <- function(wr.original.dir = WR_ORIGINAL_DIR,
+                                            wo.original.dir = WO_ORIGINAL_DIR) {
   old.rows <- data.frame()
   
-  wr.file <- file.path(WR_ORIGINAL_DIR, "GLOBAL_power_summary.csv")
+  wr.file <- file.path(wr.original.dir, "GLOBAL_power_summary.csv")
   if (file.exists(wr.file)) {
     wr <- read.csv(wr.file, stringsAsFactors = FALSE)
     wr.map <- data.frame(
@@ -4594,7 +4575,7 @@ standardize_old_power_for_table <- function() {
     )))
   }
   
-  wo.file <- file.path(WO_ORIGINAL_DIR, "WO_GLOBAL_power_summary.csv")
+  wo.file <- file.path(wo.original.dir, "WO_GLOBAL_power_summary.csv")
   if (file.exists(wo.file)) {
     wo <- read.csv(wo.file, stringsAsFactors = FALSE)
     wo.map <- data.frame(
@@ -4628,8 +4609,14 @@ standardize_old_power_for_table <- function() {
   old.rows
 }
 
-make.combined.six.max.table.source <- function(new.power, outdir = OUTDIR_NEWMAX) {
-  old.rows <- standardize_old_power_for_table()
+make.combined.six.max.table.source <- function(new.power,
+                                               outdir = OUTDIR_NEWMAX,
+                                               wr.original.dir = WR_ORIGINAL_DIR,
+                                               wo.original.dir = WO_ORIGINAL_DIR) {
+  old.rows <- standardize_old_power_for_table(
+    wr.original.dir = wr.original.dir,
+    wo.original.dir = wo.original.dir
+  )
   
   new.rows <- data.frame(
     scenario_id = new.power$scenario_id,
@@ -4669,7 +4656,9 @@ run.all.newmax <- function(scenario.grid = build.final.15.scenario.grid(),
                            nsim = NSIM_NEWMAX,
                            B = B_PERM_NEWMAX,
                            outdir = OUTDIR_NEWMAX,
-                           master.seed = MASTER_SEED_NEWMAX) {
+                           master.seed = MASTER_SEED_NEWMAX,
+                           wr.original.dir = WR_ORIGINAL_DIR,
+                           wo.original.dir = WO_ORIGINAL_DIR) {
   dir.create(outdir, recursive = TRUE, showWarnings = FALSE)
   
   scenario.grid$scenario_index <- seq_len(nrow(scenario.grid))
@@ -4683,8 +4672,8 @@ run.all.newmax <- function(scenario.grid = build.final.15.scenario.grid(),
       "WR_definition", "WO_definition", "checkpoint_every", "resume", "parallel", "n_workers"
     ),
     value = c(
-      WR_ORIGINAL_DIR,
-      WO_ORIGINAL_DIR,
+      wr.original.dir,
+      wo.original.dir,
       outdir,
       as.character(nsim),
       as.character(B),
@@ -4735,32 +4724,247 @@ run.all.newmax <- function(scenario.grid = build.final.15.scenario.grid(),
               file.path(outdir, "NEWMAX_GLOBAL_power_summary_WO.csv"), row.names = FALSE)
   }
   
-  table3.source <- make.combined.six.max.table.source(all.power, outdir = outdir)
+  table3.source <- make.combined.six.max.table.source(
+    all.power,
+    outdir = outdir,
+    wr.original.dir = wr.original.dir,
+    wo.original.dir = wo.original.dir
+  )
   
   manifest <- data.frame(file = list.files(outdir, recursive = TRUE), stringsAsFactors = FALSE)
   write.csv(manifest, file.path(outdir, "NEWMAX_GLOBAL_output_manifest.csv"), row.names = FALSE)
   
   list(method = all.method, power = all.power, table3_source = table3.source)
 }
+.win_recurrent_event_table <- function(ds) {
+  if (is.null(ds$hosp.abs.times.list)) ds <- prepare.ds.fast(ds)
+  rows <- lapply(seq_len(nrow(ds$table.output)), function(i) {
+    z <- ds$hosp.abs.times.list[[i]]
+    if (length(z) == 0) return(NULL)
+    data.frame(
+      SUBJID = rep(ds$table.output$SUBJID[i], length(z)),
+      HOSPTIME = as.numeric(z),
+      stringsAsFactors = FALSE
+    )
+  })
+  rows <- rows[!vapply(rows, is.null, logical(1))]
+  if (length(rows) == 0) {
+    return(data.frame(
+      SUBJID = ds$table.output$SUBJID[FALSE],
+      HOSPTIME = numeric(0),
+      stringsAsFactors = FALSE
+    ))
+  }
+  out <- do.call(rbind, rows)
+  rownames(out) <- NULL
+  out
+}
 
-#run code
-cat("\n===== Starting NEW maximized statistic run for WR and WO =====\n")
-cat("New methods: M_wt_thresh_0.5 and M_ord_thresh.\n")
-cat("Output folder:", OUTDIR_NEWMAX, "\n")
-cat("NSIM_NEWMAX =", NSIM_NEWMAX, "; B_PERM_NEWMAX =", B_PERM_NEWMAX, "; workers =", N_WORKERS_NEWMAX, "\n")
+generate_win_dataset <- function(n_control = 50L,
+                                 n_treatment = 50L,
+                                 mort_rate_control = -log(0.6),
+                                 hazard_ratio = 1,
+                                 hosp_shape = 5,
+                                 hosp_scale_control = 1,
+                                 hosp_scale_treatment = 1,
+                                 followup = 1,
+                                 censor_rate = 0,
+                                 seed = 2026L) {
+  n_control <- as.integer(n_control)
+  n_treatment <- as.integer(n_treatment)
+  if (!is.finite(n_control) || n_control < 1L) stop("n_control must be at least 1.")
+  if (!is.finite(n_treatment) || n_treatment < 1L) stop("n_treatment must be at least 1.")
+  if (!is.finite(mort_rate_control) || mort_rate_control <= 0) stop("mort_rate_control must be positive.")
+  if (!is.finite(hazard_ratio) || hazard_ratio <= 0) stop("hazard_ratio must be positive.")
+  if (!is.finite(hosp_shape) || hosp_shape <= 0) stop("hosp_shape must be positive.")
+  if (!is.finite(hosp_scale_control) || hosp_scale_control <= 0) stop("hosp_scale_control must be positive.")
+  if (!is.finite(hosp_scale_treatment) || hosp_scale_treatment <= 0) stop("hosp_scale_treatment must be positive.")
+  if (!is.finite(followup) || followup <= 0) stop("followup must be positive.")
+  if (!is.finite(censor_rate) || censor_rate < 0) stop("censor_rate must be non-negative.")
+  
+  if (!is.null(seed)) set.seed(as.integer(seed))
+  
+  ds <- simulate.one.dataset(
+    N = c(n_control, n_treatment),
+    mort.rate.ctrl = mort_rate_control,
+    mort.rate.trt = mort_rate_control * hazard_ratio,
+    evt.rate.shape.param = hosp_shape,
+    evt.rate.scale.param.ctr = hosp_scale_control,
+    evt.rate.scale.param.trt = hosp_scale_treatment,
+    max.followup = followup
+  )
+  
+  if (censor_rate > 0) {
+    ds <- apply.random.censoring(
+      ds,
+      censor.rate = censor_rate,
+      seed = if (is.null(seed)) NULL else as.integer(seed) + 17L
+    )
+  }
+  
+  ds <- prepare.ds.fast(ds)
+  
+  out <- list(
+    subjects = ds$table.output,
+    recurrent_events = .win_recurrent_event_table(ds),
+    analysis_data = ds,
+    settings = list(
+      n_control = n_control,
+      n_treatment = n_treatment,
+      mort_rate_control = mort_rate_control,
+      hazard_ratio = hazard_ratio,
+      hosp_shape = hosp_shape,
+      hosp_scale_control = hosp_scale_control,
+      hosp_scale_treatment = hosp_scale_treatment,
+      followup = followup,
+      censor_rate = censor_rate,
+      seed = seed
+    )
+  )
+  class(out) <- c("win_simulated_dataset", "list")
+  out
+}
 
-newmax.out <- run.all.newmax(
-  scenario.grid = build.final.15.scenario.grid(),
-  nsim = NSIM_NEWMAX,
-  B = B_PERM_NEWMAX,
-  outdir = OUTDIR_NEWMAX,
-  master.seed = MASTER_SEED_NEWMAX
-)
+default_win_scenarios <- function() {
+  build.final.15.scenario.grid()
+}
 
-cat("\nDone. Main outputs are in:\n")
-cat(OUTDIR_NEWMAX, "\n")
-cat("\nKey files:\n")
-cat(file.path(OUTDIR_NEWMAX, "NEWMAX_GLOBAL_power_summary_WR_WO.csv"), "\n")
-cat(file.path(OUTDIR_NEWMAX, "NEWMAX_GLOBAL_method_trial_results_WR_WO.csv"), "\n")
-cat(file.path(OUTDIR_NEWMAX, "NEWMAX_Table3_six_maximized_stats_source_long.csv"), "\n")
+.win_resolve_scenario <- function(scenario, scenario_grid) {
+  if (!is.data.frame(scenario_grid) || nrow(scenario_grid) == 0) {
+    stop("scenario_grid must be a non-empty data frame.")
+  }
+  
+  if (is.data.frame(scenario)) {
+    if (nrow(scenario) != 1L) stop("A scenario data frame must contain exactly one row.")
+    row <- scenario
+  } else if (is.numeric(scenario) && length(scenario) == 1L) {
+    k <- as.integer(scenario)
+    if ("scenario_index" %in% names(scenario_grid) && k %in% scenario_grid$scenario_index) {
+      row <- scenario_grid[match(k, scenario_grid$scenario_index), , drop = FALSE]
+    } else {
+      if (k < 1L || k > nrow(scenario_grid)) stop("Scenario index is out of range.")
+      row <- scenario_grid[k, , drop = FALSE]
+    }
+  } else if (is.character(scenario) && length(scenario) == 1L) {
+    if (!("scenario_id" %in% names(scenario_grid))) stop("scenario_grid has no scenario_id column.")
+    k <- match(scenario, scenario_grid$scenario_id)
+    if (is.na(k)) stop("Unknown scenario_id: ", scenario)
+    row <- scenario_grid[k, , drop = FALSE]
+  } else {
+    stop("scenario must be one scenario index, one scenario_id, or a one-row data frame.")
+  }
+  
+  if (!("scenario_index" %in% names(row)) || is.na(row$scenario_index[1])) {
+    row$scenario_index <- 1L
+  }
+  row
+}
+
+generate_win_scenario_dataset <- function(scenario = 1L,
+                                          scenario_grid = default_win_scenarios(),
+                                          sim_index = 1L,
+                                          seed = 2026L) {
+  row <- .win_resolve_scenario(scenario, scenario_grid)
+  sim_index <- as.integer(sim_index)
+  if (!is.finite(sim_index) || sim_index < 1L) stop("sim_index must be at least 1.")
+  
+  trial_seed <- as.integer(
+    seed +
+      as.integer(row$scenario_index[1]) * 1000000L +
+      sim_index * 104729L
+  )
+  
+  out <- generate_win_dataset(
+    n_control = row$N0[1],
+    n_treatment = row$N1[1],
+    mort_rate_control = row$mort.rate.ctrl[1],
+    hazard_ratio = row$HR[1],
+    hosp_shape = row$evt.rate.shape.param[1],
+    hosp_scale_control = row$evt.rate.scale.param.ctr[1],
+    hosp_scale_treatment = row$evt.rate.scale.param.trt[1],
+    followup = row$max.FU[1],
+    censor_rate = row$censor.rate[1],
+    seed = trial_seed
+  )
+  
+  out$scenario <- row
+  out$sim_index <- sim_index
+  out$trial_seed <- trial_seed
+  out
+}
+
+.win_resolve_scenario_set <- function(scenarios, scenario_grid) {
+  if (is.null(scenarios)) return(scenario_grid)
+  if (is.data.frame(scenarios)) return(scenarios)
+  
+  if (is.numeric(scenarios)) {
+    idx <- as.integer(scenarios)
+    if ("scenario_index" %in% names(scenario_grid) && all(idx %in% scenario_grid$scenario_index)) {
+      out <- scenario_grid[match(idx, scenario_grid$scenario_index), , drop = FALSE]
+    } else {
+      if (any(idx < 1L | idx > nrow(scenario_grid))) stop("At least one scenario index is out of range.")
+      out <- scenario_grid[idx, , drop = FALSE]
+    }
+    rownames(out) <- NULL
+    return(out)
+  }
+  
+  if (is.character(scenarios)) {
+    if (!("scenario_id" %in% names(scenario_grid))) stop("scenario_grid has no scenario_id column.")
+    idx <- match(scenarios, scenario_grid$scenario_id)
+    if (any(is.na(idx))) {
+      stop("Unknown scenario_id: ", paste(scenarios[is.na(idx)], collapse = ", "))
+    }
+    out <- scenario_grid[idx, , drop = FALSE]
+    rownames(out) <- NULL
+    return(out)
+  }
+  
+  stop("scenarios must be NULL, a data frame, scenario indices, or scenario_id values.")
+}
+
+run_win_simulation <- function(scenarios = NULL,
+                               scenario_grid = default_win_scenarios(),
+                               nsim = NSIM,
+                               B = B_PERM,
+                               output_dir = OUTDIR,
+                               seed = MASTER_SEED,
+                               resume = RESUME_IF_EXISTS,
+                               run_newmax = TRUE,
+                               newmax_output_dir = file.path(output_dir, "NEWMAX_two_missing_max_stats_WR_WO"),
+                               wo_original_dir = "") {
+  scenario_set <- .win_resolve_scenario_set(scenarios, scenario_grid)
+  
+  main <- run.all.scenarios.final(
+    scenario.grid = scenario_set,
+    nsim = as.integer(nsim),
+    B = as.integer(B),
+    outdir = output_dir,
+    master.seed = as.integer(seed),
+    resume = isTRUE(resume)
+  )
+  
+  newmax <- NULL
+  
+  if (isTRUE(run_newmax)) {
+    newmax <- run.all.newmax(
+      scenario.grid = scenario_set,
+      nsim = as.integer(nsim),
+      B = as.integer(B),
+      outdir = newmax_output_dir,
+      master.seed = as.integer(seed),
+      wr.original.dir = output_dir,
+      wo.original.dir = wo_original_dir
+    )
+  }
+  
+  invisible(list(
+    scenarios = scenario_set,
+    main = main,
+    newmax = newmax,
+    output_dir = output_dir,
+    newmax_output_dir = if (isTRUE(run_newmax)) newmax_output_dir else NULL
+  ))
+}
+
 
