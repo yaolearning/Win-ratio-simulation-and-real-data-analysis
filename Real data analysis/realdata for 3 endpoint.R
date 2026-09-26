@@ -1,23 +1,26 @@
 #Clean environment
-rm(list = ls())
 options(stringsAsFactors = FALSE)
 
 # Input and output paths
-DATA_PATH <- ""
-DATA_OBJECT_NAME <- NULL
+if (!exists("DATA_SOURCE")) DATA_SOURCE <- "file"
+if (!exists("DATA_PATH")) DATA_PATH <- ""
+if (!exists("DATA_OBJECT_NAME")) DATA_OBJECT_NAME <- NULL
+if (!exists("DATA_OBJECT")) DATA_OBJECT <- NULL
+if (!exists("DATA_PACKAGE")) DATA_PACKAGE <- ""
+if (!exists("DATASET_NAME")) DATASET_NAME <- ""
 
-OUTPUT_DIR <- ""
+if (!exists("OUTPUT_DIR") || !nzchar(OUTPUT_DIR)) OUTPUT_DIR <- "WR_WO_outputs"
 
 #Data format
 #Use "wide" if each subject has one row.
 #Use "event_long" if the data has one row per event, e.g. ID/time/status/trt.
-DATA_FORMAT <- "wide"  # "wide" or "event_long"
+if (!exists("DATA_FORMAT")) DATA_FORMAT <- "wide"  # "wide" or "event_long"
 
 #wide format:
 #ID_COL, ARM_COL, and endpoint columns in ENDPOINTS_WIDE.
 #ARM_COL must be coded as 1=treatment A and 0=control B.
-ID_COL <- "SUBJID"
-ARM_COL <- "ARM"
+if (!exists("ID_COL")) ID_COL <- "SUBJID"
+if (!exists("ARM_COL")) ARM_COL <- "ARM"
 
 #Endpoint types supported:
 #type = "time"       adverse time-to-event endpoint; larger event-free time is better
@@ -27,8 +30,8 @@ ARM_COL <- "ARM"
 #type = "continuous" continuous endpoint; set higher_better TRUE/FALSE; needs value_col
 #For 3 endpoints, put three entries here.
 #For 2 endpoints, put two entries here; the code still works.
-ENDPOINTS_WIDE <- list(
-  list(name = "Outcome 1", type = "time",  time_col = "FUTIME", event_col = "CNSR"),
+if (!exists("ENDPOINTS_WIDE")) ENDPOINTS_WIDE <- list(
+  list(name = "Outcome 1", type = "time",  time_col = "FUTIME", event_col = "CNSR", unit = "years"),
   list(name = "Outcome 2", type = "count", count_col = "NUMHOSP"),
   #Replace this with your real third endpoint. Delete it for two-endpoint data.
   list(name = "Outcome 3", type = "count", count_col = "ENDPOINT3_COUNT")
@@ -38,15 +41,16 @@ ENDPOINTS_WIDE <- list(
 #event_long format:
 #EVENT_ID_COL, EVENT_ARM_COL, EVENT_TIME_COL, EVENT_STATUS_COL.
 #status code 0 is treated as censoring/follow-up row.
-EVENT_ID_COL <- "patid"
-EVENT_ARM_COL <- "trt_ab"
-EVENT_TIME_COL <- "time"
-EVENT_STATUS_COL <- "status"
+if (!exists("EVENT_ID_COL")) EVENT_ID_COL <- "patid"
+if (!exists("EVENT_ARM_COL")) EVENT_ARM_COL <- "trt_ab"
+if (!exists("EVENT_TIME_COL")) EVENT_TIME_COL <- "time"
+if (!exists("EVENT_STATUS_COL")) EVENT_STATUS_COL <- "status"
+if (!exists("EVENT_TIME_UNIT")) EVENT_TIME_UNIT <- "years"
 
 #For event_long format, define endpoints by status_code.
 #type = "time"  : first event of that status code; otherwise censored at max follow-up
 #type = "count" : number of events with that status code
-EVENT_ENDPOINTS <- list(
+if (!exists("EVENT_ENDPOINTS")) EVENT_ENDPOINTS <- list(
   list(name = "Death", type = "time",  status_code = 1),
   list(name = "Hospitalization", type = "count", status_code = 2),
   ## Replace or delete depending on your data
@@ -62,7 +66,7 @@ EVENT_ENDPOINTS <- list(
 #endpoints, the threshold search uses two thresholds, one for each time endpoint.
 #You may also specify a subset manually, e.g. c(1, 3). Every listed endpoint
 #must have type = "time".
-THRESHOLD_TIME_ENDPOINTS <- "auto"  # "auto" or an integer vector such as c(1, 3)
+if (!exists("THRESHOLD_TIME_ENDPOINTS")) THRESHOLD_TIME_ENDPOINTS <- "auto"  # "auto" or an integer vector such as c(1, 3)
 
 #Optional manual threshold grids by endpoint number.
 #Units must match the data time unit.
@@ -73,13 +77,21 @@ THRESHOLD_TIME_ENDPOINTS <- "auto"  # "auto" or an integer vector such as c(1, 3
 #`2` = NULL,
 #`3` = c(0, 6, 12, 24)
 #)
-THRESHOLD_GRID_BY_ENDPOINT <- list(
+if (!exists("THRESHOLD_GRID_BY_ENDPOINT")) THRESHOLD_GRID_BY_ENDPOINT <- list(
   `1` = NULL,
   `2` = NULL,
   `3` = NULL
 )
+if (!exists("THRESHOLD_UNIT_BY_ENDPOINT")) THRESHOLD_UNIT_BY_ENDPOINT <- list(
+  `1` = "months",
+  `2` = "months",
+  `3` = "months"
+)
+if (!exists("THRESHOLD_DATA_PROBS")) THRESHOLD_DATA_PROBS <- c(0.10, 0.25, 0.50, 0.75, 0.90)
+if (!exists("THRESHOLD_MAX_EVENT_TIMES")) THRESHOLD_MAX_EVENT_TIMES <- 800L
+if (!exists("THRESHOLD_DATA_SEED")) THRESHOLD_DATA_SEED <- 999L
 
-TIME_UNIT_LABEL <- "months"
+TIME_UNIT_LABEL <- "years"
 MAX_AUTO_THRESHOLDS_PER_ENDPOINT <- 10L
 
 #Weight search configuration
@@ -87,28 +99,29 @@ MAX_AUTO_THRESHOLDS_PER_ENDPOINT <- 10L
 #For 3 endpoints with p1 >= p2 >= p3 >= 0 and sum=1, vertices are:
 #(1,0,0), (0.5,0.5,0), (1/3,1/3,1/3).
 #WEIGHT_MODE = "grid" uses a grid over p1,p2,p3.
-WEIGHT_MODE <- "vertices"  # "vertices" or "grid"
-WEIGHT_STEP <- 0.05
+if (!exists("WEIGHT_MODE")) WEIGHT_MODE <- "vertices"  # "vertices" or "grid"
+if (!exists("WEIGHT_STEP")) WEIGHT_STEP <- 0.05
 
 #Default is ordered weights: the first endpoint in the selected order gets
 #the largest weight, the second endpoint gets the second largest weight, and
 #the last endpoint gets the smallest weight.
-WEIGHT_CONSTRAINT <- "ordered"  # "ordered" or "simplex"
+if (!exists("WEIGHT_CONSTRAINT")) WEIGHT_CONSTRAINT <- "ordered"  # "ordered" or "simplex"
 
 
 #Permutation
-B_PERM <- 500L
-SEED <- 20260818
-CHECKPOINT_EVERY <- 25L
-FORCE_RERUN <- FALSE
+if (!exists("RUN_PERMUTATION")) RUN_PERMUTATION <- TRUE
+if (!exists("B_PERM")) B_PERM <- 500L
+if (!exists("SEED")) SEED <- 20260818
+if (!exists("CHECKPOINT_EVERY")) CHECKPOINT_EVERY <- 25L
+if (!exists("FORCE_RERUN")) FORCE_RERUN <- FALSE
 
 
 #Method/output 
-REPORT_ALL_FIXED_ORDERS <- TRUE
-RUN_WR <- TRUE
-RUN_WO <- TRUE
-RUN_LOGRANK <- TRUE
-RUN_COMPOSITE_LOGRANK_IF_POSSIBLE <- TRUE
+if (!exists("REPORT_ALL_FIXED_ORDERS")) REPORT_ALL_FIXED_ORDERS <- TRUE
+if (!exists("RUN_WR")) RUN_WR <- TRUE
+if (!exists("RUN_WO")) RUN_WO <- TRUE
+if (!exists("RUN_LOGRANK")) RUN_LOGRANK <- TRUE
+if (!exists("RUN_COMPOSITE_LOGRANK_IF_POSSIBLE")) RUN_COMPOSITE_LOGRANK_IF_POSSIBLE <- TRUE
 
 
 #Packages
@@ -284,6 +297,30 @@ set.seed(SEED)
 #Helper functions
 safe_num <- function(x) suppressWarnings(as.numeric(as.character(x)))
 
+normalize_time_unit <- function(unit) {
+  unit <- tolower(trimws(as.character(unit)[1]))
+  if (unit %in% c("year", "years", "yr", "yrs")) return("years")
+  if (unit %in% c("month", "months", "mo", "mos")) return("months")
+  if (unit %in% c("day", "days", "d")) return("days")
+  stop("Unsupported time unit: ", unit)
+}
+
+time_to_years <- function(x, unit = "years") {
+  unit <- normalize_time_unit(unit)
+  x <- safe_num(x)
+  if (unit == "years") return(x)
+  if (unit == "months") return(x / 12)
+  x / 365.25
+}
+
+years_to_unit <- function(x, unit = "years") {
+  unit <- normalize_time_unit(unit)
+  x <- as.numeric(x)
+  if (unit == "years") return(x)
+  if (unit == "months") return(x * 12)
+  x * 365.25
+}
+
 first_non_missing <- function(x) {
   x <- x[!is.na(x)]
   if (length(x) == 0) return(NA)
@@ -369,6 +406,30 @@ read_any_data <- function(path, object_name = NULL) {
   stop("Unsupported file extension: ", ext)
 }
 
+read_package_data <- function(package_name, dataset_name) {
+  package_name <- trimws(as.character(package_name)[1])
+  dataset_name <- trimws(as.character(dataset_name)[1])
+  if (!nzchar(package_name) || !nzchar(dataset_name)) stop("DATA_PACKAGE and DATASET_NAME are required when DATA_SOURCE = 'package'.")
+  if (!requireNamespace(package_name, quietly = TRUE)) stop("Package is not installed: ", package_name)
+  env <- new.env(parent = emptyenv())
+  try(utils::data(list = dataset_name, package = package_name, envir = env), silent = TRUE)
+  if (!exists(dataset_name, envir = env, inherits = FALSE)) stop("Dataset not found in package: ", package_name, "::", dataset_name)
+  obj <- get(dataset_name, envir = env, inherits = FALSE)
+  if (!is.data.frame(obj)) stop("Package dataset is not a data frame: ", dataset_name)
+  as.data.frame(obj)
+}
+
+read_input_data <- function() {
+  src <- tolower(trimws(as.character(DATA_SOURCE)[1]))
+  if (src == "file") return(read_any_data(DATA_PATH, DATA_OBJECT_NAME))
+  if (src == "object") {
+    if (is.null(DATA_OBJECT) || !is.data.frame(DATA_OBJECT)) stop("DATA_OBJECT must be a data frame when DATA_SOURCE = 'object'.")
+    return(as.data.frame(DATA_OBJECT))
+  }
+  if (src == "package") return(read_package_data(DATA_PACKAGE, DATASET_NAME))
+  stop("DATA_SOURCE must be 'file', 'object', or 'package'.")
+}
+
 prepare_wide_data <- function(raw, id_col, arm_col, endpoints) {
   if (!id_col %in% names(raw)) stop("ID_COL not found: ", id_col)
   if (!arm_col %in% names(raw)) stop("ARM_COL not found: ", arm_col)
@@ -394,15 +455,16 @@ prepare_wide_data <- function(raw, id_col, arm_col, endpoints) {
       if (!ep$event_col %in% names(raw)) stop("Missing event column for endpoint ", j, ": ", ep$event_col)
       tcol <- paste0("e", j, "_time")
       ecol <- paste0("e", j, "_event")
-      d[[tcol]] <- safe_num(raw[[ep$time_col]])
-      d[[ecol]] <- as.integer(safe_num(raw[[ep$event_col]]) == 1)
-      endpoint_specs[[j]] <- list(id = j, name = ep_name, type = "time", time_col = tcol, event_col = ecol)
+      ep_unit <- if (!is.null(ep$unit)) ep$unit else "years"
+      d[[tcol]] <- time_to_years(raw[[ep$time_col]], ep_unit)
+      event_raw <- safe_num(raw[[ep$event_col]])
+      d[[ecol]] <- ifelse(is.na(event_raw), NA_integer_, as.integer(event_raw == 1))
+      endpoint_specs[[j]] <- list(id = j, name = ep_name, type = "time", time_col = tcol, event_col = ecol, input_unit = normalize_time_unit(ep_unit), analysis_unit = "years")
       
     } else if (ep_type == "count") {
       if (!ep$count_col %in% names(raw)) stop("Missing count column for endpoint ", j, ": ", ep$count_col)
       ccol <- paste0("e", j, "_count")
       d[[ccol]] <- safe_num(raw[[ep$count_col]])
-      d[[ccol]][is.na(d[[ccol]])] <- 0
       endpoint_specs[[j]] <- list(id = j, name = ep_name, type = "count", count_col = ccol)
       
     } else if (ep_type == "binary") {
@@ -437,7 +499,7 @@ prepare_event_long_data <- function(raw, id_col, arm_col, time_col, status_col, 
   dt <- as.data.table(raw)
   dt[, .id_tmp := get(id_col)]
   dt[, .arm_tmp := safe_num(get(arm_col))]
-  dt[, .time_tmp := safe_num(get(time_col))]
+  dt[, .time_tmp := time_to_years(get(time_col), EVENT_TIME_UNIT)]
   dt[, .status_tmp := safe_num(get(status_col))]
   
   subj <- dt[, .(
@@ -465,7 +527,7 @@ prepare_event_long_data <- function(raw, id_col, arm_col, time_col, status_col, 
       subj[[ecol]] <- ifelse(is.na(subj$event_time), 0L, 1L)
       subj[[tcol]] <- ifelse(is.na(subj$event_time), subj$followup_time, subj$event_time)
       subj$event_time <- NULL
-      endpoint_specs[[j]] <- list(id = j, name = ep_name, type = "time", time_col = tcol, event_col = ecol)
+      endpoint_specs[[j]] <- list(id = j, name = ep_name, type = "time", time_col = tcol, event_col = ecol, input_unit = normalize_time_unit(EVENT_TIME_UNIT), analysis_unit = "years")
       
     } else if (ep_type == "count") {
       tmp <- dt[, .(event_count = sum(.status_tmp == code, na.rm = TRUE)), by = .id_tmp]
@@ -486,7 +548,7 @@ prepare_event_long_data <- function(raw, id_col, arm_col, time_col, status_col, 
   list(data = subj, endpoints = endpoint_specs)
 }
 
-raw_data <- read_any_data(DATA_PATH, DATA_OBJECT_NAME)
+raw_data <- read_input_data()
 
 if (DATA_FORMAT == "wide") {
   prepared <- prepare_wide_data(raw_data, ID_COL, ARM_COL, ENDPOINTS_WIDE)
@@ -515,8 +577,8 @@ prepare_endpoint_cache_for_cpp <- function(data, endpoint_specs) {
     if (ep_type == "time") {
       type_code[j] <- 1L
       time_mat[, j] <- safe_num(data[[ep$time_col]])
-      event_mat[, j] <- as.integer(safe_num(data[[ep$event_col]]) == 1)
-      event_mat[is.na(event_mat[, j]), j] <- 0L
+      ev <- safe_num(data[[ep$event_col]])
+      event_mat[, j] <- ifelse(is.na(ev), NA_integer_, as.integer(ev == 1))
     } else if (ep_type == "count") {
       type_code[j] <- 2L
       value_mat[, j] <- safe_num(data[[ep$count_col]])
@@ -700,95 +762,89 @@ counts_for_candidate <- function(data, arm_vec, order_vec, weights, thresholds_b
 
 #Threshold and weight grids
 auto_threshold_grid <- function(data, endpoint_spec, max_thresholds = 10L) {
-  ## Threshold grid is defined only for time-to-event endpoints.
-  if (is.null(endpoint_spec) || !identical(tolower(endpoint_spec$type), "time")) return(0)
-  
-  vals <- c(0)
+  if (is.null(endpoint_spec) || !identical(tolower(endpoint_spec$type), "time")) return(numeric(0))
   t <- safe_num(data[[endpoint_spec$time_col]])
-  e <- as.integer(data[[endpoint_spec$event_col]] == 1)
-  t_event <- t[e == 1 & !is.na(t)]
-  t_all <- t[!is.na(t)]
-  
-  if (length(t_all) == 0) return(0)
-  max_t <- max(t_all, na.rm = TRUE)
-  
-  clinical <- c(1, 3, 6, 12, 18, 24, 36, 48, 60)
-  clinical <- clinical[clinical > 0 & clinical < max_t]
-  
-  if (length(t_event) >= 2) {
-    if (length(t_event) > 800) t_event <- sample(t_event, 800)
-    diffs <- abs(as.vector(stats::dist(t_event)))
-    diffs <- diffs[is.finite(diffs) & diffs > 0]
-    qs <- as.numeric(stats::quantile(diffs, probs = c(0.10, 0.25, 0.50, 0.75, 0.90), na.rm = TRUE))
-    vals <- c(vals, clinical, qs)
-  } else {
-    vals <- c(vals, clinical)
+  e <- safe_num(data[[endpoint_spec$event_col]])
+  t_event <- t[e == 1 & is.finite(t)]
+  if (length(t_event) < 2) return(numeric(0))
+  if (length(t_event) > THRESHOLD_MAX_EVENT_TIMES) {
+    set.seed(as.integer(THRESHOLD_DATA_SEED + endpoint_spec$id))
+    t_event <- sample(t_event, THRESHOLD_MAX_EVENT_TIMES, replace = FALSE)
   }
-  
-  vals <- sort(unique(round(vals[is.finite(vals) & vals >= 0], 4)))
-  if (length(vals) > max_thresholds) {
-    keep_idx <- unique(round(seq(1, length(vals), length.out = max_thresholds)))
-    vals <- vals[keep_idx]
-    vals <- sort(unique(c(0, vals)))
-  }
+  diffs <- abs(as.vector(stats::dist(t_event)))
+  diffs <- diffs[is.finite(diffs) & diffs > 0]
+  if (length(diffs) == 0) return(numeric(0))
+  probs <- sort(unique(as.numeric(THRESHOLD_DATA_PROBS)))
+  probs <- probs[is.finite(probs) & probs > 0 & probs < 1]
+  vals <- as.numeric(stats::quantile(diffs, probs = probs, na.rm = TRUE, names = FALSE))
+  vals <- sort(unique(round(vals[is.finite(vals) & vals > 0], 8)))
+  if (length(vals) > max_thresholds) vals <- vals[seq_len(max_thresholds)]
   vals
 }
 
 resolve_threshold_time_endpoints <- function(endpoint_specs, user_setting) {
   time_ids <- which(vapply(endpoint_specs, function(ep) identical(tolower(ep$type), "time"), logical(1)))
-  
   if (length(time_ids) == 0) return(integer(0))
-  
   if (is.character(user_setting) && length(user_setting) == 1 && tolower(user_setting) == "auto") {
+    if (length(endpoint_specs) == 2L) return(intersect(1L, time_ids))
     return(time_ids)
   }
-  
   ids <- as.integer(user_setting)
   if (any(is.na(ids))) stop("THRESHOLD_TIME_ENDPOINTS must be 'auto' or an integer vector of endpoint IDs.")
   bad <- setdiff(ids, time_ids)
-  if (length(bad) > 0) {
-    stop("Thresholds can only be assigned to time-to-event endpoints. Invalid endpoint(s): ", paste(bad, collapse = ", "))
-  }
+  if (length(bad) > 0) stop("Thresholds can only be assigned to time-to-event endpoints. Invalid endpoint(s): ", paste(bad, collapse = ", "))
   ids
+}
+
+threshold_unit_for_endpoint <- function(endpoint_id) {
+  val <- THRESHOLD_UNIT_BY_ENDPOINT[[as.character(endpoint_id)]]
+  if (is.null(val) || length(val) == 0 || is.na(val[1]) || !nzchar(as.character(val[1]))) return("years")
+  normalize_time_unit(val[1])
 }
 
 get_manual_threshold_grid <- function(endpoint_id) {
   val <- THRESHOLD_GRID_BY_ENDPOINT[[as.character(endpoint_id)]]
-  if (is.null(val)) return(NULL)
-  val <- sort(unique(as.numeric(val)))
+  if (is.null(val)) return(numeric(0))
+  val <- as.numeric(val)
   val <- val[is.finite(val) & val >= 0]
-  if (!0 %in% val) val <- sort(unique(c(0, val)))
-  val
+  sort(unique(time_to_years(val, threshold_unit_for_endpoint(endpoint_id))))
 }
 
 make_threshold_grid_df <- function(data, endpoint_specs) {
   active_ids <- resolve_threshold_time_endpoints(endpoint_specs, THRESHOLD_TIME_ENDPOINTS)
   m <- length(endpoint_specs)
-  
   values_list <- vector("list", m)
   source_vec <- rep("none", m)
+  display_values <- rep("", m)
+  display_units <- rep("", m)
   
   for (j in seq_len(m)) {
     colname <- paste0("threshold_e", j)
     if (j %in% active_ids) {
       manual <- get_manual_threshold_grid(j)
-      if (!is.null(manual)) {
-        values_list[[j]] <- manual
-        source_vec[j] <- "manual"
-      } else {
-        values_list[[j]] <- auto_threshold_grid(data, endpoint_specs[[j]], MAX_AUTO_THRESHOLDS_PER_ENDPOINT)
-        source_vec[j] <- "auto"
-      }
+      automatic <- auto_threshold_grid(data, endpoint_specs[[j]], MAX_AUTO_THRESHOLDS_PER_ENDPOINT)
+      vals <- sort(unique(c(manual, automatic)))
+      if (length(vals) == 0) vals <- 0
+      values_list[[j]] <- vals
+      if (length(manual) > 0 && length(automatic) > 0) source_vec[j] <- "candidate+data-driven"
+      else if (length(manual) > 0) source_vec[j] <- "candidate"
+      else if (length(automatic) > 0) source_vec[j] <- "data-driven"
+      else source_vec[j] <- "zero_fallback"
+      unit_j <- threshold_unit_for_endpoint(j)
+      display_units[j] <- unit_j
+      display_values[j] <- paste(round(years_to_unit(vals, unit_j), 8), collapse = ",")
     } else {
       values_list[[j]] <- 0
       source_vec[j] <- if (identical(tolower(endpoint_specs[[j]]$type), "time")) "inactive_time_endpoint" else "not_time_endpoint"
+      display_units[j] <- if (identical(tolower(endpoint_specs[[j]]$type), "time")) threshold_unit_for_endpoint(j) else ""
+      display_values[j] <- "0"
     }
     names(values_list)[j] <- colname
   }
   
   dt <- do.call(data.table::CJ, c(values_list, list(sorted = FALSE)))
   thr_cols <- paste0("threshold_e", seq_len(m))
-  dt[, threshold_key := apply(.SD, 1, function(z) paste(sprintf("%.4f", as.numeric(z)), collapse = "|")), .SDcols = thr_cols]
+  dt[, threshold_key := apply(.SD, 1, function(z) paste(sprintf("%.8f", as.numeric(z)), collapse = "|")), .SDcols = thr_cols]
   
   info <- data.table(
     endpoint = seq_len(m),
@@ -796,7 +852,10 @@ make_threshold_grid_df <- function(data, endpoint_specs) {
     endpoint_type = vapply(endpoint_specs, function(ep) ep$type, character(1)),
     threshold_active = seq_len(m) %in% active_ids,
     threshold_source = source_vec,
-    threshold_values = vapply(seq_len(m), function(j) paste(values_list[[j]], collapse = ","), character(1))
+    threshold_internal_unit = "years",
+    threshold_candidate_unit = display_units,
+    threshold_values_internal = vapply(seq_len(m), function(j) paste(values_list[[j]], collapse = ","), character(1)),
+    threshold_values_candidate_unit = display_values
   )
   
   list(grid = dt, info = info, active_ids = active_ids)
@@ -1126,7 +1185,7 @@ run_all_methods_single_permutation_process <- function() {
   final_path <- file.path(OUTPUT_DIR, "checkpoints", "ALL_METHODS_SINGLE_PERMUTATION_final.rds")
   checkpoint_path <- file.path(OUTPUT_DIR, "checkpoints", "ALL_METHODS_SINGLE_PERMUTATION_checkpoint.rds")
   
-  if (file.exists(final_path) && !FORCE_RERUN) {
+  if (isTRUE(RUN_PERMUTATION) && file.exists(final_path) && !FORCE_RERUN) {
     return(readRDS(final_path))
   }
   
@@ -1158,6 +1217,19 @@ run_all_methods_single_permutation_process <- function() {
     }
   }
   combo_dt <- rbindlist(combo_rows, fill = TRUE)
+  
+  if (!isTRUE(RUN_PERMUTATION)) {
+    return(list(
+      obs_counts = obs_counts,
+      combo_dt = combo_dt,
+      exceed_one = setNames(rep(NA_integer_, nrow(combo_dt)), combo_dt$combo_id),
+      exceed_two = setNames(rep(NA_integer_, nrow(combo_dt)), combo_dt$combo_id),
+      perm_selected = data.table(),
+      B = 0L,
+      methods = METHODS,
+      all_candidates = ALL_CANDIDATES
+    ))
+  }
   
   exceed_one <- setNames(rep(0L, nrow(combo_dt)), combo_dt$combo_id)
   exceed_two <- setNames(rep(0L, nrow(combo_dt)), combo_dt$combo_id)
@@ -1268,8 +1340,8 @@ flatten_final_result <- function(analysis_out) {
     perm_one <- perm_selected[measure == cd$measure & method_id == cd$method_id & side == "one"]
     perm_two <- perm_selected[measure == cd$measure & method_id == cd$method_id & side == "two"]
     
-    p_one <- (as.integer(analysis_out$exceed_one[combo_id]) + 1) / (B + 1)
-    p_two <- (as.integer(analysis_out$exceed_two[combo_id]) + 1) / (B + 1)
+    p_one <- if (B > 0L && !is.na(analysis_out$exceed_one[combo_id])) (as.integer(analysis_out$exceed_one[combo_id]) + 1) / (B + 1) else NA_real_
+    p_two <- if (B > 0L && !is.na(analysis_out$exceed_two[combo_id])) (as.integer(analysis_out$exceed_two[combo_id]) + 1) / (B + 1) else NA_real_
     
     t_cols <- paste0("threshold_e", seq_len(M_ENDPOINTS))
     t_one_vals <- as.numeric(unlist(obs_one[, ..t_cols], use.names = FALSE))
@@ -1302,8 +1374,8 @@ flatten_final_result <- function(analysis_out) {
       loss_rank1_one = obs_one$loss_rank1,
       loss_rank2_one = obs_one$loss_rank2,
       loss_rank3_one = obs_one$loss_rank3,
-      mean_perm_tie_count_one = mean(perm_one$tie_count, na.rm = TRUE),
-      mean_perm_tie_proportion_one = mean(perm_one$tie_proportion, na.rm = TRUE),
+      mean_perm_tie_count_one = if (B > 0L && nrow(perm_one) > 0) mean(perm_one$tie_count, na.rm = TRUE) else NA_real_,
+      mean_perm_tie_proportion_one = if (B > 0L && nrow(perm_one) > 0) mean(perm_one$tie_proportion, na.rm = TRUE) else NA_real_,
       
       statistic_two = if (cd$measure == "WR") obs_two$WR_statistic else obs_two$WO_statistic,
       abslog_statistic_two = if (cd$measure == "WR") obs_two$WR_abslog else obs_two$WO_abslog,
@@ -1325,8 +1397,8 @@ flatten_final_result <- function(analysis_out) {
       loss_rank1_two = obs_two$loss_rank1,
       loss_rank2_two = obs_two$loss_rank2,
       loss_rank3_two = obs_two$loss_rank3,
-      mean_perm_tie_count_two = mean(perm_two$tie_count, na.rm = TRUE),
-      mean_perm_tie_proportion_two = mean(perm_two$tie_proportion, na.rm = TRUE)
+      mean_perm_tie_count_two = if (B > 0L && nrow(perm_two) > 0) mean(perm_two$tie_count, na.rm = TRUE) else NA_real_,
+      mean_perm_tie_proportion_two = if (B > 0L && nrow(perm_two) > 0) mean(perm_two$tie_proportion, na.rm = TRUE) else NA_real_
     )
     
     for (j in seq_len(M_ENDPOINTS)) {
@@ -1342,7 +1414,7 @@ flatten_final_result <- function(analysis_out) {
 
 method_results <- flatten_final_result(analysis_out)
 fwrite(method_results, file.path(OUTPUT_DIR, "REALDATA_all_WR_WO_method_results.csv"))
-fwrite(analysis_out$perm_selected, file.path(OUTPUT_DIR, "REALDATA_permutation_selected_results_all_methods.csv"))
+if (nrow(analysis_out$perm_selected) > 0) fwrite(analysis_out$perm_selected, file.path(OUTPUT_DIR, "REALDATA_permutation_selected_results_all_methods.csv"))
 
 
 #Endpoint and data summaries
@@ -1398,9 +1470,9 @@ subject_summary <- data.table(
   n_endpoints = M_ENDPOINTS,
   threshold_time_endpoint_ids = paste(THRESHOLD_ACTIVE_IDS, collapse = ","),
   n_threshold_candidate_combinations = nrow(THRESHOLD_GRID_DF),
-  B_perm = B_PERM,
+  B_perm = if (isTRUE(RUN_PERMUTATION)) B_PERM else 0L,
   seed = SEED,
-  one_permutation_process_for_all_methods = TRUE,
+  one_permutation_process_for_all_methods = isTRUE(RUN_PERMUTATION),
   weight_constraint = WEIGHT_CONSTRAINT,
   weight_mode = WEIGHT_MODE
 )
@@ -1550,7 +1622,7 @@ readme <- c(
   "",
   "Important interpretation note:",
   "This is a real-data analysis. It reports observed WR/WO statistics and permutation p-values, not statistical power.",
-  "Adaptive procedures repeat the full selection inside each treatment-label permutation.",
+  if (isTRUE(RUN_PERMUTATION)) "Adaptive procedures repeat the full selection inside each treatment-label permutation." else "Permutation inference was not requested; observed WR/WO selections are reported without permutation p-values.",
   "",
   "Major update in this version:",
   "All WR/WO methods are evaluated inside one shared permutation process. The script does NOT rerun a separate permutation loop for each maxing method.",
@@ -1587,7 +1659,7 @@ readme <- c(
   "WO statistic:",
   "(sum_r p_r W_A,r + 0.5*T) / (sum_r p_r W_B,r + 0.5*T)",
   "",
-  paste0("B_PERM = ", B_PERM),
+  paste0("B_PERM = ", if (isTRUE(RUN_PERMUTATION)) B_PERM else 0L),
   paste0("SEED = ", SEED),
   paste0("Threshold-active endpoint IDs = ", paste(THRESHOLD_ACTIVE_IDS, collapse = ",")),
   paste0("Number of unique candidate rules evaluated per permutation = ", nrow(ALL_CANDIDATES))
@@ -1599,8 +1671,10 @@ cat("\nDone. Outputs saved in:\n")
 cat(OUTPUT_DIR, "\n")
 cat("\nMain result table:\n")
 cat(file.path(OUTPUT_DIR, "REALDATA_all_WR_WO_method_results.csv"), "\n")
-cat("\nPermutation selections:\n")
-cat(file.path(OUTPUT_DIR, "REALDATA_permutation_selected_results_all_methods.csv"), "\n")
+if (isTRUE(RUN_PERMUTATION)) {
+  cat("\nPermutation selections:\n")
+  cat(file.path(OUTPUT_DIR, "REALDATA_permutation_selected_results_all_methods.csv"), "\n")
+}
 cat("\nLog-rank table:\n")
 cat(file.path(OUTPUT_DIR, "REALDATA_logrank_results.csv"), "\n")
 
