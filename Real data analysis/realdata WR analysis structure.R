@@ -43,11 +43,14 @@ EPS_WR <- 1e-8
 
 # endpoint values justified by the monotonicity result: p = 0.50 and p = 1.00.
 if (!exists("FINAL_P_VALUES")) FINAL_P_VALUES <- c(0.50, 1.00)
+if (!exists("RUN_PERMUTATION_FINAL")) RUN_PERMUTATION_FINAL <- TRUE
+if (!exists("THRESHOLD_CANDIDATE_UNIT")) THRESHOLD_CANDIDATE_UNIT <- "months"
 
 # Threshold candidate block for the  WR/WO analysis.
-if (!exists("THRESHOLD_CANDIDATE_MONTHS")) {
-  THRESHOLD_CANDIDATE_MONTHS <- c(1, 3, 6, 12, 18, 24)
+if (!exists("THRESHOLD_CANDIDATE_VALUES")) {
+  THRESHOLD_CANDIDATE_VALUES <- c(1, 3, 6, 12, 18, 24)
 }
+if (!exists("THRESHOLD_CANDIDATE_MONTHS")) THRESHOLD_CANDIDATE_MONTHS <- THRESHOLD_CANDIDATE_VALUES
 
 # Optional dataset-specific candidate values. Use the dataset_id as the name.
 # If a dataset is not listed here, THRESHOLD_CANDIDATE_MONTHS is used.
@@ -3884,12 +3887,12 @@ final.abslog.ratio <- function(x) {
   abs(final.log.ratio(x))
 }
 
-final.wo <- function(win.pairs, loss.pairs, tie.count) {
-  win.pairs <- as.numeric(win.pairs)
-  loss.pairs <- as.numeric(loss.pairs)
+final.wo <- function(win.score, loss.score, tie.count) {
+  win.score <- as.numeric(win.score)
+  loss.score <- as.numeric(loss.score)
   tie.count <- as.numeric(tie.count)
-  num <- win.pairs + 0.5 * tie.count
-  den <- loss.pairs + 0.5 * tie.count
+  num <- win.score + 0.5 * tie.count
+  den <- loss.score + 0.5 * tie.count
   out <- rep(NA_real_, length(num))
   ok <- is.finite(num) & is.finite(den) & den > 0
   out[ok] <- num[ok] / den[ok]
@@ -3927,7 +3930,7 @@ final.manual.thresholds <- function(dataset.id) {
       dataset.id %in% names(THRESHOLD_CANDIDATES_BY_DATASET)) {
     return(as.numeric(THRESHOLD_CANDIDATES_BY_DATASET[[dataset.id]]))
   }
-  as.numeric(THRESHOLD_CANDIDATE_MONTHS)
+  as.numeric(THRESHOLD_CANDIDATE_VALUES)
 }
 
 # Same outcome-1 data-driven threshold mechanism used in the simulation and
@@ -3936,7 +3939,8 @@ final.manual.thresholds <- function(dataset.id) {
 # and data-driven modes.
 choose.threshold.grid.final <- function(ds,
                                         dataset.id = "realdata",
-                                        candidate.months = final.manual.thresholds(dataset.id),
+                                        candidate.values = final.manual.thresholds(dataset.id),
+                                        candidate.unit = THRESHOLD_CANDIDATE_UNIT,
                                         max.K = MAX_T_GRID_SIZE,
                                         probs = THRESHOLD_DATA_PROBS,
                                         max.event.times = THRESHOLD_MAX_EVENT_TIMES,
@@ -3981,7 +3985,8 @@ choose.threshold.grid.final <- function(ds,
   data.priority <- data.priority[is.finite(data.priority) & data.priority > 0 & data.priority <= max.months]
   data.priority <- unique(data.priority)
   
-  candidate <- as.numeric(candidate.months)
+  candidate <- as.numeric(candidate.values)
+  candidate <- time_to_years(candidate, candidate.unit) * 12
   candidate <- round(candidate[is.finite(candidate) & candidate > 0 & candidate <= max.months], 1)
   candidate <- unique(sort(candidate))
   
@@ -3996,7 +4001,7 @@ choose.threshold.grid.final <- function(ds,
   selected <- sort(selected)
   
   if (length(selected) == 0) {
-    stop("No valid threshold candidates were available. Enter at least one value in THRESHOLD_CANDIDATE_MONTHS or THRESHOLD_CANDIDATES_BY_DATASET.")
+    stop("No valid threshold candidates were available. Enter at least one value in THRESHOLD_CANDIDATE_VALUES or THRESHOLD_CANDIDATES_BY_DATASET.")
   }
   
   source.type <- vapply(selected, function(x) {
@@ -4194,19 +4199,12 @@ final.make.candidate.row <- function(order,
   win.score <- p * first.win + (1 - p) * second.win
   loss.score <- p * first.loss + (1 - p) * second.loss
   
-  # Keep the same effective tie convention as the WO simulation.
-  # For p=1, only the first tier contributes; otherwise both tiers contribute.
-  if (abs(p - 1) < 1e-12) {
-    win.pairs <- first.win
-    loss.pairs <- first.loss
-  } else {
-    win.pairs <- first.win + second.win
-    loss.pairs <- first.loss + second.loss
-  }
+  win.pairs <- first.win + second.win
+  loss.pairs <- first.loss + second.loss
   tie.count <- total.pairs - win.pairs - loss.pairs
   
   wr <- safe_wr(win.score, loss.score, total.pairs)
-  wo <- final.wo(win.pairs, loss.pairs, tie.count)
+  wo <- final.wo(win.score, loss.score, tie.count)
   
   data.frame(
     candidate_type = candidate.type,
@@ -4753,7 +4751,7 @@ make.final.method.table <- function(dataset.id,
     method = one$method,
     method_label = mapply(final.method.label, one$method, one$measure, USE.NAMES = FALSE),
     method_description = mapply(final.method.long.label, one$method, one$measure, USE.NAMES = FALSE),
-    p_value_source = "treatment-label permutation",
+    p_value_source = if (test.out$B > 0) "treatment-label permutation" else "not computed",
     
     observed_value_one_sided = one$selected_value,
     selected_WR_one_sided = one$selected_WR,
@@ -4950,16 +4948,18 @@ run.one.real.dataset.final.WR.WO <- function(registry.row,
   threshold.info <- choose.threshold.grid.final(
     ds = ds,
     dataset.id = dataset.id,
-    candidate.months = final.manual.thresholds(dataset.id),
+    candidate.values = final.manual.thresholds(dataset.id),
+    candidate.unit = THRESHOLD_CANDIDATE_UNIT,
     max.K = MAX_T_GRID_SIZE,
     probs = THRESHOLD_DATA_PROBS,
     max.event.times = THRESHOLD_MAX_EVENT_TIMES,
     data.seed = THRESHOLD_DATA_SEED
   )
   
+  B.use <- if (isTRUE(RUN_PERMUTATION_FINAL)) B else 0L
   test.out <- perm.test.final.WR.WO(
     ds = ds,
-    B = B,
+    B = B.use,
     batch.size = batch.size,
     seed = seed,
     p.grid = FINAL_P_VALUES,
@@ -5085,20 +5085,22 @@ run.all.real.datasets.final.WR.WO <- function(dataset.registry = REAL_DATASETS,
   
   settings <- data.frame(
     setting = c(
-      "B_REAL_FINAL", "BATCH_SIZE_REAL_FINAL", "MASTER_SEED", "ALPHA",
-      "FINAL_P_VALUES", "THRESHOLD_RULE", "THRESHOLD_CANDIDATE_MONTHS",
+      "B_REAL_FINAL", "BATCH_SIZE_REAL_FINAL", "MASTER_SEED", "ALPHA", "RUN_PERMUTATION_FINAL",
+      "FINAL_P_VALUES", "THRESHOLD_RULE", "THRESHOLD_CANDIDATE_VALUES", "THRESHOLD_CANDIDATE_UNIT",
       "THRESHOLD_DATA_PROBS", "THRESHOLD_MAX_EVENT_TIMES",
       "methods", "WR_two_sided_statistic", "WO_two_sided_statistic",
       "permutation_rule"
     ),
     value = c(
-      as.character(B),
+      as.character(if (isTRUE(RUN_PERMUTATION_FINAL)) B else 0L),
       as.character(batch.size),
       as.character(master.seed),
       as.character(FINAL_ALPHA),
+      as.character(RUN_PERMUTATION_FINAL),
       paste(sprintf("%.2f", FINAL_P_VALUES), collapse = ", "),
       "user candidates + data-driven event-time-difference quantiles",
-      paste(THRESHOLD_CANDIDATE_MONTHS, collapse = ", "),
+      paste(THRESHOLD_CANDIDATE_VALUES, collapse = ", "),
+      as.character(THRESHOLD_CANDIDATE_UNIT),
       paste(sprintf("%.2f", THRESHOLD_DATA_PROBS), collapse = ", "),
       as.character(THRESHOLD_MAX_EVENT_TIMES),
       paste(c(
@@ -5108,7 +5110,7 @@ run.all.real.datasets.final.WR.WO <- function(dataset.registry = REAL_DATASETS,
       ), collapse = "; "),
       "abs(log(WR))",
       "abs(log(WO))",
-      "Adaptive order/weight/threshold selection is repeated inside every treatment-label permutation."
+      if (isTRUE(RUN_PERMUTATION_FINAL)) "Adaptive order/weight/threshold selection is repeated inside every treatment-label permutation." else "Permutation inference not run."
     ),
     stringsAsFactors = FALSE
   )
@@ -5219,5 +5221,7 @@ if (isTRUE(AUTO_RUN_FINAL_WR_WO)) {
     )
   }
 }
+
+
 
 
