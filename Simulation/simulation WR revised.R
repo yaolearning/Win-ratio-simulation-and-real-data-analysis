@@ -4966,5 +4966,3 @@ run_win_simulation <- function(scenarios = NULL,
     newmax_output_dir = if (isTRUE(run_newmax)) newmax_output_dir else NULL
   ))
 }
-
-

@@ -1677,4 +1677,3 @@ if (isTRUE(RUN_PERMUTATION)) {
 }
 cat("\nLog-rank table:\n")
 cat(file.path(OUTPUT_DIR, "REALDATA_logrank_results.csv"), "\n")
-
