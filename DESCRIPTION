@@ -1,0 +1,52 @@
+Package: MaxWin
+Type: Package
+Title: Optimizing the Win Ratio with Respect to Weighting, Ordering, and Thresholding
+Version: 0.1.0
+Authors@R: c(
+    person(
+        given = "Yifan",
+        family = "Yao",
+        email = "yy5933@nyu.edu",
+        role = c("aut", "cre")
+    ),
+    person(
+        given = c("Rebecca", "A."),
+        family = "Betensky",
+        role = "aut"
+    ),
+    person(
+        given = "Hongwei",
+        family = "Yan",
+        role = "aut"
+    ),
+    person(
+        given = "Yuekun",
+        family = "Shao",
+        role = "aut"
+    )
+    )
+Description: Provides methods for win ratio and win odds analyses of
+    hierarchical composite endpoints. The package supports two- and
+    three-endpoint analyses, endpoint ordering, endpoint weighting,
+    threshold-based comparisons, permutation inference, recurrent-event
+    outcomes with pairwise common follow-up, real-data analysis, and
+    simulation studies.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Depends:
+    R (>= 4.1.0)
+Imports:
+    Rcpp,
+    survival,
+    stats,
+    graphics,
+    grDevices,
+    utils,
+    tools
+LinkingTo:
+    Rcpp
+Suggests:
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3
+NeedsCompilation: yes
+
