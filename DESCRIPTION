@@ -49,4 +49,5 @@ Suggests:
     testthat (>= 3.0.0)
 Config/testthat/edition: 3
 NeedsCompilation: yes
-
+URL: https://github.com/yaolearning/Win-ratio-simulation-and-real-data-analysis
+BugReports: https://github.com/yaolearning/Win-ratio-simulation-and-real-data-analysis/issues
