@@ -65,10 +65,7 @@
     permutation = permutation_control(
       enabled = TRUE,
       B = B,
-      seed = simulated$trial_seed + 100000L,
-      checkpoint_every = max(1L, B),
-      resume = FALSE,
-      force_rerun = TRUE
+      seed = simulated$trial_seed + 100000L
     ),
     engine = engine_control(
       backend = "two_endpoint_recurrent"
@@ -205,6 +202,21 @@
   out
 }
 
+#' Run a repeated MaxWin simulation study.
+#' @param scenarios Scenario indices, IDs, a scenario data frame, or `NULL` for all scenarios.
+#' @param scenario_grid Scenario definition data frame.
+#' @param nsim Number of simulated trials per scenario.
+#' @param B Number of treatment-label permutations per simulated trial.
+#' @param seed Master random seed.
+#' @param alpha Significance level used for empirical rejection proportions.
+#' @param output_dir Optional output directory.
+#' @param checkpoint_every Frequency of simulation-level checkpoint saves.
+#' @param resume Whether to resume a simulation-level checkpoint if available.
+#' @param verbose Whether to print progress.
+#' @param save_plots Whether to save simulation figures when `output_dir` is supplied.
+#' @param save_scenario_tables Whether to save scenario-specific tables.
+#' @return A `win_simulation` object.
+#' @export
 run_win_simulation <- function(scenarios = NULL,
                                scenario_grid = default_win_scenarios(),
                                nsim = 1000L,
@@ -389,6 +401,11 @@ run_win_simulation <- function(scenarios = NULL,
   out
 }
 
+#' Print a simulation-study summary.
+#' @param x A `win_simulation` object.
+#' @param ... Additional arguments.
+#' @return `x` invisibly.
+#' @export
 print.win_simulation <- function(x, ...) {
   cat("Win-ratio simulation study\n")
   cat("Scenarios:", nrow(x$scenarios), "\n")
@@ -397,10 +414,20 @@ print.win_simulation <- function(x, ...) {
   invisible(x)
 }
 
+#' Summarize a simulation study.
+#' @param object A `win_simulation` object.
+#' @param ... Additional arguments.
+#' @return The empirical rejection/power summary.
+#' @export
 summary.win_simulation <- function(object, ...) {
   object$power
 }
 
+#' Convert a simulation study to a data frame.
+#' @param x A `win_simulation` object.
+#' @param ... Additional arguments.
+#' @return The empirical rejection/power summary.
+#' @export
 as.data.frame.win_simulation <- function(x, ...) {
   x$power
 }

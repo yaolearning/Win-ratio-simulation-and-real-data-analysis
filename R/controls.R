@@ -1,28 +1,17 @@
 permutation_control <- function(enabled = TRUE,
                                 B = 500L,
-                                seed = 2026L,
-                                checkpoint_every = 25L,
-                                resume = TRUE,
-                                force_rerun = FALSE) {
+                                seed = 2026L) {
   B <- as.integer(B)
-  checkpoint_every <- as.integer(checkpoint_every)
 
   if (isTRUE(enabled) && (is.na(B) || B < 1L)) {
     stop("B must be at least 1 when permutation is enabled.")
-  }
-
-  if (is.na(checkpoint_every) || checkpoint_every < 1L) {
-    stop("checkpoint_every must be at least 1.")
   }
 
   structure(
     list(
       enabled = isTRUE(enabled),
       B = if (isTRUE(enabled)) B else 0L,
-      seed = as.integer(seed),
-      checkpoint_every = checkpoint_every,
-      resume = isTRUE(resume),
-      force_rerun = isTRUE(force_rerun)
+      seed = as.integer(seed)
     ),
     class = c("win_permutation_control", "list")
   )
@@ -49,7 +38,10 @@ engine_control <- function(backend = c("auto", "general", "two_endpoint_recurren
                            eps = 1e-8) {
   backend <- match.arg(backend)
   eps <- as.numeric(eps)[1]
-  if (!is.finite(eps) || eps <= 0) stop("eps must be positive.")
+
+  if (!is.finite(eps) || eps <= 0) {
+    stop("eps must be positive.")
+  }
 
   structure(
     list(

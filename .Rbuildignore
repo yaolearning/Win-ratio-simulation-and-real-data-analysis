@@ -1,0 +1,8 @@
+^.*\.Rproj$
+^\.Rproj\.user$
+^\.github$
+^Datasets$
+^Real data analysis$
+^Simulation$
+^setup_MaxWin\.R$
+^NEXT_STEP\.txt$
